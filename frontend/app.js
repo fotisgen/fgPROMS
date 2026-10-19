@@ -337,7 +337,8 @@ function renderModelTab(d) {
   const df = m.dof;
   const modeText = m.isProcess ? t("flowsheet")
     : (m.objective ? t("optimization")
-      : (m.isDynamic ? t("dynamic") : t("steady")));
+      : (m.estimated && m.estimated.length ? t("estimation")
+        : (m.isDynamic ? t("dynamic") : t("steady"))));
   let html = `<h3>${t("modelName")}: ${esc(m.name)}</h3>
   <div class="cards">
     <div class="card"><div class="card-num">${df.unknowns}</div><div class="card-label">${t("unknowns")}</div></div>
@@ -418,7 +419,7 @@ function renderResultsTab(d) {
       : ""
   }${objText}</div>`;
 
-  if (r.values) {
+    if (r.values) {
     html += `<h3>${t(r.mode === "dynamic" ? "finalValues" : "valuesTitle")}</h3>
     <table class="grid"><thead><tr><th>${t("name")}</th><th>${t("value")}</th></tr></thead><tbody>`;
     const vars = d.model ? d.model.variables : [];
@@ -426,6 +427,25 @@ function renderResultsTab(d) {
       const val = r.values[v.name.toLowerCase()];
       html += `<tr><td>${esc(v.name)}</td><td>${val !== undefined ? fmt(val) : "—"}</td></tr>`;
     }
+    html += "</tbody></table>";
+  }
+
+  if (r.mode === "estimation" && r.estimated) {
+    html += `<h3>${t("estimatedTitle")}</h3>
+    <table class="grid"><thead><tr><th>${t("name")}</th><th>${t("value")}</th></tr></thead><tbody>`;
+    const pnames = {};
+    if (d.model) for (const p of d.model.parameters) pnames[p.name.toLowerCase()] = p.name;
+    for (const [k, v] of Object.entries(r.estimated))
+      html += `<tr><td>${esc(pnames[k] || k)}</td><td>${fmt(v)}</td></tr>`;
+    html += `</tbody></table>`;
+    html += `<div class="summary ok">${t("sseLabel")}: ${fmt(r.sse)}</div>`;
+  }
+
+  if (r.mode === "estimation" && r.dataFit && r.dataFit.length) {
+    html += `<h3>${t("fitTitle")}</h3>
+    <table class="grid"><thead><tr><th>${t("variable")}</th><th>${t("time")}</th><th>${t("measured")}</th><th>${t("modelVal")}</th></tr></thead><tbody>`;
+    for (const f of r.dataFit)
+      html += `<tr><td>${esc(f.var)}</td><td>${fmt(f.t)}</td><td>${fmt(f.measured)}</td><td>${fmt(f.model)}</td></tr>`;
     html += "</tbody></table>";
   }
 

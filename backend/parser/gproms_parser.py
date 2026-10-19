@@ -40,7 +40,7 @@ class Token:
 
 SECTION_KEYWORDS = {
     "PARAMETER", "VARIABLE", "EQUATION", "INITIAL", "SCHEDULE", "SET",
-    "OPTIMIZE", "BOUNDS", "DISTRIBUTION", "BOUNDARY",
+    "OPTIMIZE", "BOUNDS", "DISTRIBUTION", "BOUNDARY", "DATA", "ESTIMATE",
     "SELECTOR", "DISTRIBUTION_DOMAIN", "UNIT", "PROCESS", "STREAM",
     "SOLUTIONPARAMETER",
 }
@@ -266,6 +266,13 @@ class BoundaryEq:
 
 
 @dataclass
+class DataDecl:
+    name: str
+    points: List[tuple]     # list of (time_node, value_node)
+    line: int
+
+
+@dataclass
 class UnitDecl:
     name: str
     type_name: str
@@ -304,6 +311,8 @@ class Model:
     bounds: List[Bound] = field(default_factory=list)
     distributions: List[DistributionDecl] = field(default_factory=list)
     boundaries: List[BoundaryEq] = field(default_factory=list)
+    data: List[DataDecl] = field(default_factory=list)
+    estimate: List[str] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
@@ -502,6 +511,12 @@ class Parser:
                 elif u == "BOUNDARY":
                     self.next()
                     model.boundaries = self.parse_boundaries()
+                elif u == "DATA":
+                    self.next()
+                    model.data = self.parse_data()
+                elif u == "ESTIMATE":
+                    self.next()
+                    model.estimate = self.parse_estimate()
                 elif u in SECTION_KEYWORDS:
                     raise ParseError(
                         f"Section '{u}' is not supported by fgPROMS (Phase 1)",
@@ -781,6 +796,41 @@ class Parser:
             self.expect_op(";")
             bcs.append(BoundaryEq(eq, at_domain, at_expr, 0))
         return bcs
+
+    # -- parameter estimation (DATA / ESTIMATE) --------------------------------
+    def parse_data(self) -> List[DataDecl]:
+        data: List[DataDecl] = []
+        while (self.peek().kind == "IDENT"
+               and self.peek().value.upper() not in RESERVED):
+            name_tok = self.next()
+            self.expect_op(":")
+            points: List[tuple] = []
+            while True:
+                t_node = self.parse_expr()
+                self.expect_op(":")
+                v_node = self.parse_expr()
+                points.append((t_node, v_node))
+                if self.at_op(","):
+                    self.next()
+                    continue
+                break
+            if self.at_op(";"):
+                self.next()
+            data.append(DataDecl(name_tok.value, points, name_tok.line))
+        return data
+
+    def parse_estimate(self) -> List[str]:
+        names: List[str] = []
+        while (self.peek().kind == "IDENT"
+               and self.peek().value.upper() not in RESERVED):
+            names.append(self.next().value)
+            if self.at_op(","):
+                self.next()
+                continue
+            if self.at_op(";"):
+                self.next()
+            break
+        return names
 
     # -- expressions (precedence climbing) --------------------------------------
     def parse_expr(self, min_prec: float = 0.0) -> Node:

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from .parser.gproms_parser import parse_file, ParseError
 from .analyzer.analyzer import analyze
-from .solver.solver import solve_steady, solve_dynamic, solve_optimize, make_eval
+from .solver.solver import (solve_steady, solve_dynamic, solve_optimize,
+                            solve_estimation, make_eval)
 from .flowsheet import analyze_process
 
 
@@ -61,6 +62,21 @@ def run_model(code: str) -> dict:
     if info["blocked"]:
         return {"ok": True, "messages": messages, "model": info["model"],
                 "results": None, "timeSeries": None}
+
+    # ---- parameter estimation ---------------------------------------------
+    if info["_is_estimation"]:
+        res = solve_estimation(model, info)
+        messages += res["messages"]
+        results = {"mode": "estimation", "success": res["success"],
+                   "method": res.get("method"),
+                   "values": res.get("values"),
+                   "residuals": res.get("residuals"),
+                   "maxResidual": res.get("maxResidual"),
+                   "estimated": res.get("estimated"),
+                   "sse": res.get("sse"),
+                   "dataFit": res.get("dataFit")}
+        return {"ok": True, "messages": messages, "model": info["model"],
+                "results": results, "timeSeries": res.get("series")}
 
     # ---- optimization ------------------------------------------------------
     if info["_is_optimization"]:

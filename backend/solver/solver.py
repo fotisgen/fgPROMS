@@ -808,3 +808,91 @@ def solve_optimize(model: Model, info: dict) -> dict:
             "objective": {"kind": obj_meta["kind"], "value": obj_value},
             "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
             "maxResidual": maxr, "method": "SLSQP"}
+
+
+# --------------------------------------------------------------------------
+# Parameter estimation (gEST-style): fit ESTIMATE parameters to DATA by
+# least squares. The model is solved inside the objective — every candidate
+# parameter set runs a full (steady or dynamic) simulation.
+# --------------------------------------------------------------------------
+def solve_estimation(model: Model, info: dict) -> dict:
+    est: List[str] = info["_estimate"]
+    data: List[tuple] = info["_data"]
+    bounds_map: Dict[str, tuple] = info["_bounds"]
+    base_fixed: Dict[str, float] = dict(info["_fixed_values"])
+    dynamic = info["_schedule"] is not None and info["_states"]
+
+    x0 = [base_fixed.get(p, 0.0) for p in est]
+
+    def simulate(params_dict: Dict[str, float]):
+        info2 = dict(info)
+        info2["_fixed_values"] = dict(base_fixed)
+        info2["_fixed_values"].update(params_dict)
+        if dynamic:
+            res = solve_dynamic(model, info2)
+            if not res["success"]:
+                return None
+            ts = res["series"]
+
+            def at(var, t_i):
+                return float(np.interp(t_i, ts["t"], ts["variables"][var]))
+            return at, res
+        res = solve_steady(model, info2)
+        if not res["success"]:
+            return None
+
+        def at(var, t_i):
+            return float(res["values"][var])
+        return at, res
+
+    def obj(x):
+        p = {n: float(v) for n, v in zip(est, x)}
+        sim = simulate(p)
+        if sim is None:
+            return 1e12
+        at, _ = sim
+        sse = 0.0
+        for var, pts in data:
+            for t_i, val in pts:
+                sse += (at(var, t_i) - val) ** 2
+        return sse
+
+    bounds = [bounds_map.get(p, (None, None)) for p in est]
+    try:
+        r = minimize(obj, x0, method="SLSQP", bounds=bounds,
+                     options={"maxiter": 300, "ftol": 1e-10})
+    except Exception as e:
+        return {"success": False,
+                "messages": [{"level": "error", "code": "err_estimate_failed",
+                              "args": {"detail": str(e)}}],
+                "values": None, "estimated": None, "sse": None,
+                "dataFit": None, "residuals": [], "maxResidual": None,
+                "method": "SLSQP", "series": None}
+
+    best = {n: float(v) for n, v in zip(est, r.x)}
+    sim = simulate(best)
+    if sim is None or not r.success:
+        detail = getattr(r, "message", "no convergence")
+        return {"success": False,
+                "messages": [{"level": "error", "code": "err_estimate_failed",
+                              "args": {"detail": detail}}],
+                "values": None, "estimated": best, "sse": float(obj(r.x)),
+                "dataFit": None, "residuals": [], "maxResidual": None,
+                "method": "SLSQP", "series": None}
+
+    at, res_final = sim
+    sse = float(obj(r.x))
+    data_fit = []
+    for var, pts in data:
+        for t_i, val in pts:
+            data_fit.append({"var": var, "t": t_i, "measured": val,
+                             "model": float(at(var, t_i))})
+    messages = [{"level": "info", "code": "estimate_ok",
+                 "args": {"method": "SLSQP", "sse": f"{sse:.6g}"}}]
+    return {"success": True, "messages": messages,
+            "values": res_final.get("values"),
+            "residuals": res_final.get("residuals"),
+            "maxResidual": res_final.get("maxResidual"),
+            "method": "SLSQP", "estimated": best, "sse": sse,
+            "dataFit": data_fit,
+            "series": res_final.get("series")}

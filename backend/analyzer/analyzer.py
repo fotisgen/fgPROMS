@@ -101,6 +101,7 @@ def _display_eq(eq: EqEquation) -> str:
 
 def analyze(model: Model) -> dict:
     messages: List[dict] = []
+    blocked = False
 
     # ---- declarations ------------------------------------------------------
     params: List[dict] = []
@@ -405,11 +406,56 @@ def analyze(model: Model) -> dict:
             continue
         bounds_info[key] = (float(lo), float(hi))
 
+    # ---- parameter estimation (DATA / ESTIMATE) -----------------------------
+    is_estimation = bool(model.estimate)
+    estimate_names: List[str] = []
+    param_lowers = {p["lower"] for p in params}
+    if model.estimate:
+        for nm in model.estimate:
+            key = nm.lower()
+            if key not in param_lowers or "(" in key:
+                messages.append({"level": "error", "code": "err_est_not_param",
+                                 "args": {"name": nm}})
+                blocked = True
+                continue
+            estimate_names.append(key)
+    data_info: List[tuple] = []
+    if model.data:
+        var_keys = ({v["lower"] for v in variables}
+                    | {v["base"] for v in variables})
+        for d in model.data:
+            key = d.name.lower()
+            if key not in var_keys:
+                messages.append({"level": "error", "code": "err_data_not_var",
+                                 "args": {"name": d.name}})
+                blocked = True
+                continue
+            pts = []
+            for t_node, v_node in d.points:
+                tv = _eval_const(t_node, env)
+                vv = _eval_const(v_node, env)
+                if tv is None or vv is None:
+                    messages.append({"level": "error", "code": "err_data_bad",
+                                     "args": {"name": d.name}})
+                    blocked = True
+                    continue
+                pts.append((float(tv), float(vv)))
+            data_info.append((key, pts))
+        if not model.estimate:
+            messages.append({"level": "info", "code": "info_data_ignored",
+                             "args": {}})
+    if model.estimate and not model.data:
+        messages.append({"level": "error", "code": "err_est_no_data",
+                         "args": {}})
+        blocked = True
+    if is_estimation and objective is not None:
+        messages.append({"level": "error", "code": "err_est_opt", "args": {}})
+        blocked = True
+
     # ---- degrees of freedom & validation -----------------------------------------
     dof = len(unknowns) - eq_count
     is_dynamic = bool(derivs_used)
     is_optimization = objective is not None
-    blocked = False
 
     if not equations:
         messages.append({"level": "error", "code": "err_no_equations", "args": {}})
@@ -507,6 +553,12 @@ def analyze(model: Model) -> dict:
                          "points": domains[dv["domain"]].points,
                          "extent": domains[dv["domain"]].extent}
                         for dv in dist_decls if dv["domain"] in domains],
+        "estimated": [p["name"] for p in params if p["lower"] in estimate_names],
+        "data": [{"var": d.name,
+                  "points": [{"t": pt[0], "value": pt[1]}
+                             for pt in data_info[i][1]]}
+                 for i, d in enumerate(model.data)
+                 if data_info and i < len(data_info)],
     }
 
     return {
@@ -525,4 +577,7 @@ def analyze(model: Model) -> dict:
         "_bounds": bounds_info,
         "_objective": objective,
         "_array_sizes": array_sizes,
+        "_is_estimation": is_estimation,
+        "_estimate": estimate_names,
+        "_data": data_info,
     }

@@ -1,0 +1,33 @@
+# ============================================================
+#  fgPROMS benchmark: parameter estimation (gEST-style)
+#  Batch reactor, n-th order decay:  dCA/dt = -k * CA^n
+#  The DATA are "measurements" generated from the analytical
+#  solution with the TRUE k = 0.1:
+#      CA(t) = (1 + 0.5*0.1*t)^(-2)
+#    t=0 : 1.0      t=10: 0.444444
+#    t=20: 0.25     t=30: 0.16
+#  ESTIMATE k (initial guess 0.2) — the solver must recover
+#  k ~ 0.1 by least squares.
+# ============================================================
+MODEL BatchEstimate
+  PARAMETER
+    k   AS REAL DEFAULT 0.2     # initial guess (true value: 0.1)
+    n   AS REAL DEFAULT 1.5
+    CA0 AS REAL DEFAULT 1.0
+  VARIABLE
+    CA AS REAL
+  EQUATION
+    $CA = -k * CA^n ;
+  INITIAL
+    CA = CA0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 30 STEP 3
+    END
+  DATA
+    CA : 0 : 1.0, 10 : 0.444444, 20 : 0.25, 30 : 0.16 ;
+  ESTIMATE
+    k ;
+  BOUNDS
+    k : 0.01 : 1.0 ;
+END
