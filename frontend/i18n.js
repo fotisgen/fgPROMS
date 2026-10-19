@@ -215,6 +215,11 @@ const MSG = {
     err_est_opt: "Η εκτίμηση παραμέτρων δεν συνδυάζεται με OPTIMIZE.",
     info_data_ignored: "Το DATA αγνοήθηκε (δεν υπάρχει ESTIMATE).",
     err_data_bad: "Μη έγκυρα δεδομένα στο DATA για «{name}» (μη αριθμητικές τιμές).",
+    err_phase_unknown: "Η φάση «{phase}» στο SCHEDULE δεν έχει δηλωθεί στο TASK.",
+    err_phase_dof: "Φάση «{phase}»: {e} εξισώσεις για {u} αγνώστους — κάθε φάση πρέπει να δίνει σύστημα με βαθμούς ελευθερίας 0.",
+    err_phase_gap: "Οι φάσεις στο SCHEDULE δεν καλύπτουν συνεχώς όλο το χρονικό εύρος.",
+    warn_phase_unused: "Η φάση «{phase}» του TASK δεν χρησιμοποιείται στο SCHEDULE.",
+    err_phase_dist: "Ο συνδυασμός TASK φάσεων με DISTRIBUTION δεν υποστηρίζεται ακόμη.",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -269,5 +274,10 @@ const MSG = {
     err_est_opt: "Parameter estimation cannot be combined with OPTIMIZE.",
     info_data_ignored: "DATA was ignored (no ESTIMATE section present).",
     err_data_bad: "Invalid DATA values for “{name}” (non-numeric).",
+    err_phase_unknown: "Phase “{phase}” in SCHEDULE is not declared in TASK.",
+    err_phase_dof: "Phase “{phase}”: {e} equations for {u} unknowns — every phase must give a system with 0 degrees of freedom.",
+    err_phase_gap: "The phases in SCHEDULE do not cover the whole time horizon continuously.",
+    warn_phase_unused: "TASK phase “{phase}” is not used in the SCHEDULE.",
+    err_phase_dist: "Combining TASK phases with DISTRIBUTION is not yet supported.",
   },
 };

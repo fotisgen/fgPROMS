@@ -41,6 +41,7 @@ class Token:
 SECTION_KEYWORDS = {
     "PARAMETER", "VARIABLE", "EQUATION", "INITIAL", "SCHEDULE", "SET",
     "OPTIMIZE", "BOUNDS", "DISTRIBUTION", "BOUNDARY", "DATA", "ESTIMATE",
+    "TASK",
     "SELECTOR", "DISTRIBUTION_DOMAIN", "UNIT", "PROCESS", "STREAM",
     "SOLUTIONPARAMETER",
 }
@@ -50,6 +51,7 @@ RESERVED = SECTION_KEYWORDS | {
     "CONTINUE", "FOR", "TO", "STEP", "SEQUENCE", "AS", "REAL", "INTEGER",
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN",
     "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
+    "WITH", "PHASE",
 }
 
 
@@ -232,6 +234,7 @@ class ScheduleStep:
     t0: Node
     t1: Node
     step: Optional[Node]
+    phase: Optional[str] = None
 
 
 @dataclass
@@ -313,6 +316,7 @@ class Model:
     boundaries: List[BoundaryEq] = field(default_factory=list)
     data: List[DataDecl] = field(default_factory=list)
     estimate: List[str] = field(default_factory=list)
+    task_phases: dict = field(default_factory=dict)   # phase_lower -> equations
 
 
 # --------------------------------------------------------------------------
@@ -517,6 +521,9 @@ class Parser:
                 elif u == "ESTIMATE":
                     self.next()
                     model.estimate = self.parse_estimate()
+                elif u == "TASK":
+                    self.next()
+                    model.task_phases = self.parse_task()
                 elif u in SECTION_KEYWORDS:
                     raise ParseError(
                         f"Section '{u}' is not supported by fgPROMS (Phase 1)",
@@ -731,13 +738,31 @@ class Parser:
             t0 = self.parse_expr()
             self.expect_kw("TO")
             t1 = self.parse_expr()
+            phase = None
+            if self.at_kw("WITH"):
+                self.next()
+                phase = self.expect_ident().value
             step = None
             if self.at_kw("STEP"):
                 self.next()
                 step = self.parse_expr()
-            steps.append(ScheduleStep(var.value, t0, t1, step))
+            steps.append(ScheduleStep(var.value, t0, t1, step, phase))
         self.expect_kw("END")
         return steps
+
+    def parse_task(self) -> dict:
+        phases: dict = {}
+        while not self.at_kw("END"):
+            if self.peek().kind == "EOF":
+                raise ParseError("Unexpected end of file inside TASK",
+                                 self.peek().line, self.peek().col)
+            self.expect_kw("PHASE")
+            name = self.expect_ident().value
+            eqs = self.parse_eq_list()
+            self.expect_kw("END")
+            phases[name.lower()] = eqs
+        self.expect_kw("END")
+        return phases
 
     # -- objective / bounds (optimization) ----------------------------------------
     def parse_objective(self) -> Objective:

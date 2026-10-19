@@ -461,6 +461,42 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
     except Exception:
         jeval = None
 
+    # ---- task phases: per-phase equation sets (TASK section) --------------
+    phases = info.get("_phases") or {}
+    phase_compiled = {}
+    for p, eqs in model.task_phases.items():
+        phase_compiled[p] = compile_model(Model(name=model.name, line=model.line,
+                                                equations=eqs))
+    cur_cache: Dict[str, tuple] = {}
+
+    def active_phase(tnow):
+        if not phases:
+            return None
+        for p, (s, e) in phases.items():
+            if s - 1e-9 <= tnow <= e + 1e-9:
+                return p
+        return None
+
+    def get_cur(tnow):
+        if not phases:
+            return compiled, jeval
+        active = active_phase(tnow)
+        if active is None:
+            return None, None
+        if active not in cur_cache:
+            comb = compiled + phase_compiled[active]
+            je = None
+            try:
+                je = compile_jacobian(comb, allv, base,
+                                      deriv_names=tuple("$" + s
+                                                        for s in states),
+                                      param_names=(tv,),
+                                      array_sizes=info.get("_array_sizes"))
+            except Exception:
+                je = None
+            cur_cache[active] = (comb, je)
+        return cur_cache[active]
+
     steps_est = int(round((t1 - t0) / h0))
     if steps_est < 1:
         return {"success": False,
@@ -488,8 +524,16 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
         init_base[tv] = t0
         for s in states:
             init_base[s] = prev[s]
+        cur0, _ = get_cur(t0)
+        if cur0 is None:
+            return {"success": False,
+                    "messages": [{"level": "error", "code": "solve_failed",
+                                  "args": {"detail":
+                                           "no active phase at t0"}}],
+                    "values": None, "series": None, "maxResidual": None,
+                    "method": None}
         ok, sol, method, pairs = _root_solve(init_names, init_x0, init_base,
-                                             compiled,
+                                             cur0,
                                              array_sizes=info.get("_array_sizes"))
         if not ok:
             if method == "dof_mismatch":
@@ -527,6 +571,8 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
     x_hist: List[Dict[str, float]] = [dict(prev)]   # newest first
     t_hist: List[float] = [t0]
     f_hist: List[Dict[str, float]] = [f_init]       # derivative values
+    prev_phase = active_phase(t0)
+    phase_guard = 0
     t = t0
     order = 1
     max_order_used = 1
@@ -551,21 +597,24 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                 env["$" + s] = val
         return env
 
-    def bdf_res(x, tnext, hcur, k):
+    def bdf_res(x, tnext, hcur, k, cur):
         env = make_env(x, tnext, hcur, k)
         try:
-            r, _ = residuals(compiled, env)
+            r, _ = residuals(cur, env)
             return np.where(np.isfinite(r), r, 1e10)
         except Exception:
             return np.full(nv, 1e10)
 
     def solve_step(tnext, hcur, k):
+        cur, je = get_cur(tnext)
+        if cur is None:
+            return False, None
         x0 = np.array([(2.0 * x_hist[0][n] - x_hist[1][n])
                        if (n in states and len(x_hist) > 1) else x_hist[0][n]
                        for n in allv], dtype=float)
-        fun = lambda x: bdf_res(x, tnext, hcur, k)
+        fun = lambda x: bdf_res(x, tnext, hcur, k, cur)
         jac = None
-        if jeval is not None:
+        if je is not None:
             if k == 1:
                 c0 = 1.0 / hcur
             else:
@@ -573,7 +622,7 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
             c1_map = {"$" + s: c0 for s in states}
 
             def jac_fn(x, _t=tnext, _c=c1_map):
-                return jeval.eval(x, {tv: _t}, _c)
+                return je.eval(x, {tv: _t}, _c)
 
             jac = jac_fn
         if jac is not None and not jacobian_is_available(jac, x0, allv, base):
@@ -588,7 +637,7 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                 cand = root(fun, x0, method=m, options=opts)
                 if cand.success:
                     env_c = make_env(cand.x, tnext, hcur, k)
-                    rc, _ = residuals(compiled, env_c)
+                    rc, _ = residuals(cur, env_c)
                     if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
                         return True, cand.x
             except Exception:
@@ -600,6 +649,19 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                    for i in range(nv))
 
     while t < t1 - 1e-12:
+        # phase change: restart the integration (BDF1, small step, truncated
+        # history) so stale points from the previous phase do not corrupt
+        # the step across the discontinuity — do this BEFORE computing tnext
+        if phases:
+            ap = active_phase(t + h_cur)
+            if ap != prev_phase:
+                prev_phase = ap
+                order = 1
+                h_cur = min(h_cur, h_max * 0.1)
+                x_hist = x_hist[:1]
+                t_hist = t_hist[:1]
+                f_hist = f_hist[:1]
+                phase_guard = 3   # keep BDF1 for a few steps after a switch
         tnext = t + h_cur
         final_step = False
         if tnext >= t1:
@@ -659,7 +721,7 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
         # ---- try the next order (up to 5): adopt when its own estimate
         #      meets the tolerance (it is then clearly the better solution)
         if (adaptive and not final_step and order < max_order
-                and len(t_hist) >= order + 1):
+                and phase_guard <= 0 and len(t_hist) >= order + 1):
             okp, xp = solve_step(tnext, h_cur, order + 1)
             if okp:
                 errp = err_norm(xp, xk, h_cur)
@@ -687,6 +749,8 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
             t_hist.pop()
             f_hist.pop()
         max_order_used = max(max_order_used, order)
+        if phase_guard > 0:
+            phase_guard -= 1
         if not adaptive and steps_taken >= 1:
             order = 2          # constant-step BDF2 (tests / fallback)
         t = tnext
@@ -707,7 +771,8 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
     env[tv] = t1
     for n in allv:
         env[n] = x_hist[0][n]
-    r, ids = residuals(compiled, env)
+    cur1, _ = get_cur(t1)
+    r, ids = residuals(cur1 if cur1 is not None else compiled, env)
     maxr = max((abs(v) for v in r), default=0.0)
     method_label = "BDF adaptive" if adaptive else "BDF fixed"
     messages.append({"level": "info", "code": "dynamic_ok",
