@@ -105,7 +105,7 @@ fgPROMS/
 
 Δύο επίπεδα ελέγχου:
 
-### Αυτοματοποιημένη σουίτα (125 έλεγχοι)
+### Αυτοματοποιημένη σουίτα (160 έλεγχοι + 8 browser tests)
 
 Διπλό κλικ στο **`test.bat`** (ή `.venv\Scripts\python -m pytest tests -v`):
 
@@ -114,11 +114,15 @@ fgPROMS/
 | `tests/test_parser.py` | 20 έλεγχοι σύνταξης, προτεραιοτήτων τελεστών, σφαλμάτων |
 | `tests/test_analyzer.py` | 12 έλεγχοι DOF, διαγνωστικών, συνθηκών αποκλεισμού |
 | `tests/test_solver_steady.py` | αναλυτικές λύσεις: CSTR, εναλλάκτης, Rachford-Rice vs bisection, Jacobians |
-| `tests/test_solver_dynamic.py` | εκθετική απόσβεση vs e^(−at), τάξη σύγκλισης, Van der Pol vs scipy, ισοζύγιο μάζας |
+| `tests/test_solver_dynamic.py` | εκθετική απόσβεση vs e^(−at), **τάξη σύγκλισης 2**, Van der Pol vs scipy, ισοζύγιο μάζας |
 | `tests/test_optimization.py` | SLSQP vs αναλυτικά βέλτιστα, όρια, εκφυλισμένες περιπτώσεις |
 | `tests/test_properties.py` | CoolProp: cp νερού vs βιβλιογραφία, ιδιότητες σε μοντέλα/βελτιστοποίηση |
-| `tests/test_flowsheet.py` | 2 CSTR σε σειρά vs αναλυτική λύση, SET overrides, σφάλματα |
+| `tests/test_flowsheet.py` | 2 CSTR σε σειρά vs αναλυτική λύση, **δύο δεξαμενές (dynamic)**, SET overrides |
+| `tests/test_sigma.py` | SIGMA/ARRAY: N-component flash vs bisection, αθροίσματα |
+| `tests/test_library.py` | μονάδες βιβλιοθήκης vs αναλυτικές λύσεις |
+| `tests/test_tutorials.py` | τα παραδείγματα των tutorials εκτελούνται πραγματικά |
 | `tests/test_projects.py` | project storage + CSV export |
+| `tests/test_gui.py` | **πραγματικός browser (Playwright)**: editor, αποτελέσματα, γραφήματα, διάγραμμα, γλώσσα, projects, CSV |
 | `tests/test_robustness.py` | 15 έλεγχοι: χαλασμένα αρχεία → καθαρά μηνύματα, ποτέ crash |
 | `tests/test_api.py` | endpoints με FastAPI TestClient |
 
