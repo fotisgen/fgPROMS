@@ -1,0 +1,21 @@
+# ============================================================
+#  fgPROMS benchmark: variable mixture composition
+#  Water/Methanol mixture with composition as MODEL variables:
+#    z(2) = 0.6, z(1) + z(2) = 1  ->  z = [0.4, 0.6]
+#  cp and density come from CoolProp (HEOS) with the
+#  composition supplied at solve time.
+# ============================================================
+MODEL MixtureComp
+  PARAMETER
+    T AS REAL DEFAULT 300.0     # K
+    P AS REAL DEFAULT 1.0E5     # Pa
+  VARIABLE
+    z   AS ARRAY(2) OF REAL
+    cp  AS REAL
+    rho AS REAL
+  EQUATION
+    z(2) = 0.6 ;
+    z(1) + z(2) = 1 ;
+    cp  = CP('Water&Methanol', z, T, P) ;
+    rho = RHO('Water&Methanol', z, T, P) ;
+END

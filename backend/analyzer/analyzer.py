@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from ..parser.gproms_parser import (
-    Model, Num, Var, Deriv, UnOp, BinOp, Func, IfExpr, Indexed,
+    Model, Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr, Indexed,
     EqEquation, IfEquation, expr_str,
 )
 from ..properties import PROP_FUNCS, COOLPROP_AVAILABLE
@@ -44,6 +44,17 @@ def _collect(node, vars_out: Set[str], derivs_out: Set[str]) -> None:
             _collect(node.args[0], vars_out, derivs_out)
             _collect(node.args[2], vars_out, derivs_out)
             _collect(node.args[3], vars_out, derivs_out)
+            return
+        if (node.name in PROP_FUNCS and node.args
+                and isinstance(node.args[0], Str)):
+            fluid = node.args[0].value
+            start = 1
+            if ("&" in fluid and "[" not in fluid
+                    and len(node.args) >= 2 and isinstance(node.args[1], Var)):
+                start = 2     # composition array — its base name is not
+                              # a model variable itself
+            for a in node.args[start:]:
+                _collect(a, vars_out, derivs_out)
             return
         for a in node.args:
             _collect(a, vars_out, derivs_out)
@@ -518,7 +529,17 @@ def analyze(model: Model) -> dict:
             initial_guess[key] = guesses[v["base"]]
         else:
             gv = _eval_const(v["default_node"], env)
-            initial_guess[key] = gv if gv is not None else 0.0
+            if gv is not None:
+                initial_guess[key] = gv
+            elif "(" in key and v["base"] in array_sizes:
+                # array element without a guess: uniform 1/N — the natural
+                # starting point for composition-like arrays
+                n = 1
+                for d in array_sizes[v["base"]]:
+                    n *= d
+                initial_guess[key] = 1.0 / n
+            else:
+                initial_guess[key] = 0.0
 
     # ---- optimization: objective & bounds -----------------------------------------
     objective = None

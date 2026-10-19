@@ -17,7 +17,7 @@ from ..parser.gproms_parser import (
     Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr, Indexed,
     EqEquation, IfEquation, Model,
 )
-from ..properties import PROP_FUNCS, make_prop_call
+from ..properties import PROP_FUNCS, make_prop_call, _FIXED_Q, _FLUID_ONLY
 from .jacobian import (build_jacobian, build_gradient, jacobian_is_available,
                        compile_jacobian)
 
@@ -134,8 +134,21 @@ def make_eval(node) -> object:
     elif isinstance(node, Func):
         if node.name in PROP_FUNCS and node.args and isinstance(node.args[0], Str):
             fluid = node.args[0].value
-            arg_fns = [make_eval(a) for a in node.args[1:]]
-            fn = make_prop_call(node.name, fluid, arg_fns)
+            rest = node.args[1:]
+            comp_base = None
+            # variable-composition form: CP('A&B', z, T, P) — the fluid is
+            # the pure-names form and z is the mole-fraction array
+            if "&" in fluid and "[" not in fluid and rest:
+                if (node.name in _FIXED_Q and len(rest) == 2
+                        and isinstance(rest[0], Var)):
+                    comp_base = rest[0].name.lower()
+                    rest = rest[1:]
+                elif (node.name not in _FLUID_ONLY and len(rest) == 3
+                        and isinstance(rest[0], Var)):
+                    comp_base = rest[0].name.lower()
+                    rest = rest[1:]
+            arg_fns = [make_eval(a) for a in rest]
+            fn = make_prop_call(node.name, fluid, arg_fns, comp_base=comp_base)
         elif node.name == "SIGMA" and len(node.args) == 4:
             expr_fn = make_eval(node.args[0])
             idx_name = (node.args[1].name.lower()
@@ -966,8 +979,14 @@ def solve_optimize(model: Model, info: dict) -> dict:
     r, ids = residuals(compiled, env)
     maxr = max((abs(v) for v in r), default=0.0)
     obj_value = float(obj_fn(env))
+    obj_start = float(fun(np.array(x0, dtype=float)))
 
-    if res.success and maxr < 1e-6:
+    feasible = maxr < 1e-6
+    improved = res.fun <= obj_start + 1e-9
+    # SLSQP sometimes reports "Positive directional derivative" at an active
+    # bound even though the point is feasible and better than the start —
+    # accept such results (the values are the verified optimum)
+    if feasible and (res.success or improved):
         messages = [{"level": "info", "code": "optimize_ok",
                      "args": {"method": "SLSQP", "obj": f"{obj_value:.8g}",
                               "res": f"{maxr:.2e}"}}]

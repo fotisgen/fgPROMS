@@ -213,3 +213,126 @@ END
 """)
     assert isinstance(m.equations[0].rhs, Func)
     assert m.equations[0].rhs.name == "Q"
+
+
+# ---------------- M25: composition as a variable ----------------
+def _as_ref(fluid, z, T, P, method):
+    from CoolProp.CoolProp import AbstractState, PT_INPUTS
+    AS = AbstractState("HEOS", fluid)
+    AS.set_mole_fractions(list(z))
+    AS.update(PT_INPUTS, P, T)
+    return float(getattr(AS, method)())
+
+
+def test_mixture_composition_benchmark(run):
+    r = run("mixture_composition.gPROMS", folder="benchmarks")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    assert abs(v["z(1)"] - 0.4) < 1e-9
+    assert abs(v["z(2)"] - 0.6) < 1e-9
+    cp_ref = _as_ref("Water&Methanol", [0.4, 0.6], 300.0, 1e5, "cpmass")
+    rho_ref = _as_ref("Water&Methanol", [0.4, 0.6], 300.0, 1e5, "rhomass")
+    assert abs(v["cp"] - cp_ref) < 1e-3
+    assert abs(v["rho"] - rho_ref) < 1e-3
+    # sanity: between the two pure-fluid values
+    cp_w = _as_ref("Water", [1.0], 300.0, 1e5, "cpmass")
+    cp_m = _as_ref("Methanol", [1.0], 300.0, 1e5, "cpmass")
+    assert min(cp_w, cp_m) < v["cp"] < max(cp_w, cp_m)
+
+
+def test_composition_solved_as_unknown():
+    """The composition itself can be the unknown: find the water fraction
+    that gives a target cp."""
+    cp_ref = _as_ref("Water&Methanol", [0.7, 0.3], 300.0, 1e5, "cpmass")
+    r = run_model(f"""
+MODEL M
+  PARAMETER
+    T AS REAL DEFAULT 300.0
+    P AS REAL DEFAULT 1.0E5
+  VARIABLE
+    z AS ARRAY(2) OF REAL
+    cp AS REAL
+  EQUATION
+    z(1) + z(2) = 1 ;
+    cp = CP('Water&Methanol', z, T, P) ;
+    cp = {cp_ref:.6f} ;
+END
+""")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    assert abs(v["cp"] - cp_ref) < 1e-6
+    assert abs(v["z(1)"] - 0.7) < 1e-4
+
+
+def test_composition_optimization():
+    """Maximising cp over the composition pushes to the higher-cp pure
+    component (water)."""
+    r = run_model("""
+MODEL M
+  PARAMETER
+    T AS REAL DEFAULT 300.0
+    P AS REAL DEFAULT 1.0E5
+  VARIABLE
+    z AS ARRAY(2) OF REAL
+    cp AS REAL
+  EQUATION
+    z(1) + z(2) = 1 ;
+    cp = CP('Water&Methanol', z, T, P) ;
+  BOUNDS
+    z(1) : 0 : 1 ;
+  OPTIMIZE
+    MAXIMIZE cp ;
+END
+""")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    assert abs(v["z(1)"] - 1.0) < 1e-3     # pure water
+    assert abs(v["z(2)"]) < 1e-3
+
+
+def test_composition_two_phase():
+    from CoolProp.CoolProp import AbstractState, PT_INPUTS
+    r = run_model("""
+MODEL M
+  PARAMETER
+    T AS REAL DEFAULT 270.0
+    P AS REAL DEFAULT 2.0E5
+  VARIABLE
+    z AS ARRAY(2) OF REAL
+    q AS REAL
+  EQUATION
+    z(1) + z(2) = 1 ;
+    z(2) = 0.6 ;
+    q = Q('n-Butane&Propane', z, T, P) ;
+END
+""")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    AS = AbstractState("HEOS", "n-Butane&Propane")
+    AS.set_mole_fractions([0.4, 0.6])
+    AS.update(PT_INPUTS, 2e5, 270.0)
+    assert abs(v["q"] - float(AS.Q())) < 1e-6
+    assert 0.0 < v["q"] < 1.0
+
+
+def test_composition_bubble_temperature():
+    from CoolProp.CoolProp import AbstractState, PQ_INPUTS
+    r = run_model("""
+MODEL M
+  PARAMETER
+    P AS REAL DEFAULT 2.0E5
+  VARIABLE
+    z AS ARRAY(2) OF REAL
+    tb AS REAL
+  EQUATION
+    z(1) + z(2) = 1 ;
+    z(2) = 0.6 ;
+    tb = TBUBBLE('n-Butane&Propane', z, P) ;
+END
+""")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    AS = AbstractState("HEOS", "n-Butane&Propane")
+    AS.set_mole_fractions([0.4, 0.6])
+    AS.update(PQ_INPUTS, 2e5, 0.0)
+    assert abs(v["tb"] - float(AS.T())) < 1e-4
