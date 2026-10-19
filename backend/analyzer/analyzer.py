@@ -10,6 +10,7 @@ Produces:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from ..parser.gproms_parser import (
@@ -120,6 +121,31 @@ def _display_eq(eq: EqEquation) -> str:
     if eq.op == "=":
         return f"{expr_str(eq.lhs)} = {expr_str(eq.rhs)}"
     return f"{expr_str(eq.lhs)} {eq.op} {expr_str(eq.rhs)}"
+
+
+DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+
+
+def _load_csv_data(fname: str) -> Optional[List[tuple]]:
+    """Load (t, value) pairs from data/<fname>. Returns None on failure."""
+    if not re.fullmatch(r"[A-Za-z0-9_.\-]+\.csv", fname):
+        return None
+    path = DATA_DIR / fname
+    if not path.is_file():
+        return None
+    pts = []
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) != 2:
+                continue
+            pts.append((float(parts[0]), float(parts[1])))
+    except Exception:
+        return None
+    return pts or None
 
 
 def analyze(model: Model) -> dict:
@@ -523,15 +549,24 @@ def analyze(model: Model) -> dict:
                 blocked = True
                 continue
             pts = []
-            for t_node, v_node in d.points:
-                tv = _eval_const(t_node, env)
-                vv = _eval_const(v_node, env)
-                if tv is None or vv is None:
-                    messages.append({"level": "error", "code": "err_data_bad",
-                                     "args": {"name": d.name}})
+            if d.file:
+                loaded = _load_csv_data(d.file)
+                if loaded is None:
+                    messages.append({"level": "error", "code": "err_data_file",
+                                     "args": {"name": d.file}})
                     blocked = True
                     continue
-                pts.append((float(tv), float(vv)))
+                pts = loaded
+            else:
+                for t_node, v_node in d.points:
+                    tv = _eval_const(t_node, env)
+                    vv = _eval_const(v_node, env)
+                    if tv is None or vv is None:
+                        messages.append({"level": "error", "code": "err_data_bad",
+                                         "args": {"name": d.name}})
+                        blocked = True
+                        continue
+                    pts.append((float(tv), float(vv)))
             data_info.append((key, pts))
         if not model.estimate:
             messages.append({"level": "info", "code": "info_data_ignored",

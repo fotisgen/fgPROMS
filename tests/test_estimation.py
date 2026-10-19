@@ -181,3 +181,66 @@ END
 """)
     assert r["results"]["success"]
     assert abs(r["results"]["estimated"]["k"] - 1.0) < 1e-4   # pushed to bound
+
+
+# ---------------- M24: DATA FROM FILE (CSV import) ----------------
+def test_data_from_csv_file(tmp_path):
+    import backend.analyzer.analyzer as A
+    fname = "test_est_data.csv"
+    path = A.DATA_DIR / fname
+    path.write_text(
+        "# measured CA over time\n"
+        "0, 1.0\n"
+        "10, 0.444444\n"
+        "20, 0.25\n"
+        "30, 0.16\n",
+        encoding="utf-8")
+    try:
+        r = run_model("""
+MODEL M
+  PARAMETER
+    k   AS REAL DEFAULT 0.2
+    n   AS REAL DEFAULT 1.5
+    CA0 AS REAL DEFAULT 1.0
+  VARIABLE
+    CA AS REAL
+  EQUATION
+    $CA = -k * CA^n ;
+  INITIAL
+    CA = CA0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 30 STEP 3
+    END
+  DATA
+    CA FROM FILE('test_est_data.csv') ;
+  ESTIMATE
+    k ;
+  BOUNDS
+    k : 0.01 : 1.0 ;
+END
+""")
+        assert r["results"]["success"]
+        assert abs(r["results"]["estimated"]["k"] - 0.1) < 0.01
+        assert len(r["results"]["dataFit"]) == 4
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_data_from_missing_file_errors():
+    r = run_model("""
+MODEL M
+  PARAMETER
+    k AS REAL DEFAULT 0.2
+  VARIABLE
+    x AS REAL
+  EQUATION
+    x = k ;
+  DATA
+    x FROM FILE('no_such_file.csv') ;
+  ESTIMATE
+    k ;
+END
+""")
+    assert r["results"] is None
+    assert has_msg(r, "err_data_file", "error")
