@@ -1,0 +1,31 @@
+# ============================================================
+#  fgPROMS benchmark: 2D dynamic diffusion (distributed)
+#  dT/dt = alpha * (d2T/dx2 + d2T/dy2),  T = 0 on all edges,
+#  T(x,y,0) = 100.
+#  Late-time solution: fundamental Fourier mode
+#    T ~ (16/pi^2)*100 * sin(pi x)*sin(pi y) * exp(-2 alpha pi^2 t)
+#  Verified in the tests against this analytical mode.
+# ============================================================
+MODEL Diffusion2D
+  PARAMETER
+    L     AS REAL DEFAULT 1.0
+    alpha AS REAL DEFAULT 0.1
+  DISTRIBUTION
+    Axial : L : 11 ;
+    Radial : L : 11 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial, Radial) OF REAL
+  EQUATION
+    $T = alpha * (PARTIAL(T, Axial, Axial) + PARTIAL(T, Radial, Radial)) ;
+  INITIAL
+    T = 100.0 ;
+  BOUNDARY
+    T = 0 AT Axial = 0 ;
+    T = 0 AT Axial = L ;
+    T = 0 AT Radial = 0 ;
+    T = 0 AT Radial = L ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 2 STEP 0.02
+    END
+END

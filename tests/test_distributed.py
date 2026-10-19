@@ -47,7 +47,8 @@ def test_conduction_model_json(run):
     r = run("conduction.gPROMS", folder="benchmarks")
     m = r["model"]
     assert m["distributed"][0]["name"] == "T"
-    assert m["distributed"][0]["points"] == 11
+    assert m["distributed"][0]["domains"][0]["name"] == "Axial"
+    assert m["distributed"][0]["domains"][0]["points"] == 11
     # 9 interior + 2 boundary equations, 11 unknowns
     assert m["dof"] == {"unknowns": 11, "equations": 11, "dof": 0}
     assert {v["name"] for v in m["variables"]} == {f"T({k})" for k in range(1, 12)}
@@ -260,3 +261,86 @@ END
 """)
     assert r["results"] is None
     assert has_msg(r, "err_int_domain", "error")
+
+
+# ---------------- M23: 2D distributed systems ----------------
+def test_conduction_2d_uniform_solution(run):
+    """The unique harmonic solution with constant edges is constant."""
+    r = run("conduction_2d.gPROMS", folder="benchmarks")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    for k in v:
+        assert abs(v[k] - 300.0) < 1e-8, f"{k} = {v[k]}"
+
+
+def test_conduction_2d_dof_and_grid(run):
+    r = run("conduction_2d.gPROMS", folder="benchmarks")
+    m = r["model"]
+    # 11x11 grid: 81 interior equations + 40 edge equations (corners deduped)
+    assert m["dof"]["unknowns"] == 121
+    assert m["dof"]["equations"] == 121
+    assert m["dof"]["dof"] == 0
+    dist = m["distributed"][0]
+    assert {d["name"] for d in dist["domains"]} == {"Axial", "Radial"}
+    assert {v["name"] for v in m["variables"]} == {
+        f"T({i},{j})" for i in range(1, 12) for j in range(1, 12)}
+
+
+def test_diffusion_2d_fourier_mode(run):
+    """Late-time centre temperature matches the 2D fundamental mode."""
+    import math
+    r = run("diffusion_2d.gPROMS", folder="benchmarks")
+    assert r["results"]["success"]
+    ts = r["timeSeries"]
+    t_end = ts["t"][-1]
+    # centre point T(6,6) = (x=0.5, y=0.5)
+    t_mid = ts["variables"]["t(6,6)"][-1]
+    decay = math.exp(-2.0 * 0.1 * math.pi ** 2 * t_end)
+    expected = (16.0 / math.pi ** 2) * 100.0 * 1.0 * 1.0 * decay
+    rel = abs(t_mid - expected) / abs(expected)
+    assert rel < 0.05, f"centre rel error {rel:.3%}"
+    # edges stay at zero
+    assert abs(ts["variables"]["t(1,6)"][-1]) < 1e-9
+    assert abs(ts["variables"]["t(11,6)"][-1]) < 1e-9
+    # symmetry: T(4,6) == T(8,6), T(6,4) == T(6,8)
+    assert abs(ts["variables"]["t(4,6)"][-1]
+               - ts["variables"]["t(8,6)"][-1]) < 1e-4
+    assert abs(ts["variables"]["t(6,4)"][-1]
+               - ts["variables"]["t(6,8)"][-1]) < 1e-4
+
+
+def test_diffusion_2d_energy_decays(run):
+    r = run("diffusion_2d.gPROMS", folder="benchmarks")
+    ts = r["timeSeries"]
+    n = len(ts["t"])
+    energy = []
+    for i in range(n):
+        energy.append(sum(ts["variables"][f"t({a},{b})"][i]
+                          for a in range(1, 12) for b in range(1, 12)))
+    assert all(energy[j + 1] < energy[j] + 1e-12 for j in range(n - 1))
+
+
+def test_2d_inconsistent_corner_conditions_error():
+    """Conflicting edge values at a corner -> the corner receives two
+    different equations -> DOF error (honest diagnostic)."""
+    r = run_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+  DISTRIBUTION
+    Axial : L : 7 ;
+    Radial : L : 7 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial, Radial) OF REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) + PARTIAL(T, Radial, Radial) = 0 ;
+  BOUNDARY
+    T = 300 AT Axial = 0 ;
+    T = 300 AT Axial = L ;
+    T = 300 AT Radial = 0 ;
+    T = 350 AT Radial = L ;
+END
+""")
+    assert r["results"] is None
+    # the conflicting corner yields 2 extra equations -> over-determined
+    assert has_msg(r, "err_overdetermined", "error")

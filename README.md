@@ -63,9 +63,10 @@ END
 | **Flowsheets**: `PROCESS`, `UNIT name AS Type [SET …]`, συνδέσεις `R2.x = R1.y` | ✅ |
 | **Dynamic flowsheets**: μονάδες με `$` + `SCHEDULE`/`INITIAL` στο PROCESS | ✅ |
 | **Πίνακες**: `ARRAY(3)`, `ARRAY(3,4)`, `z(i,j)`, `SIGMA` (και nested) | ✅ |
-| **Κατανεμημένα (PDE, 1D)**: `DISTRIBUTION`, `PARTIAL(T,Axial[,Axial])`, `BOUNDARY … AT`, μέθοδος γραμμών | ✅ |
-| **Εκτίμηση παραμέτρων**: `DATA` + `ESTIMATE`, ελάχιστα τετράγωνα (gEST-style) | ✅ |
-| **Φάσεις batch**: `TASK`/`PHASE`, `WITH phase` στο SCHEDULE, επανεκκίνηση στην αλλαγή | ✅ |
+| **Κατανεμημένα (PDE)**: `DISTRIBUTION` (1D & 2D), `PARTIAL`, `BOUNDARY … AT`, `INT` | ✅ |
+| **Εκτίμηση παραμέτρων**: `DATA` (+ `FROM FILE` CSV), `ESTIMATE`, ελάχιστα τετράγωνα | ✅ |
+| **Φάσεις batch**: `TASK`/`PHASE`, `WITH phase`, `END WHEN` γεγονότα (bisection) | ✅ |
+| **Ρεύματα**: `STREAM S1 AS MATERIAL('fluid')` με ιδιότητες H/CP/RHO | ✅ |
 | **Ιδιότητες**: μίγματα CoolProp `'n-Butane[0.4]&Propane[0.6]'`, `Q`, bubble/dew, `U`, `G` | ✅ |
 | **Βιβλιοθήκη μονάδων**: `library/` (Heater, Pump, Mixer, Splitter, Flash) | ✅ |
 | **Projects**: αποθήκευση/φόρτωση αρχείων στον φάκελο `projects/` | ✅ |

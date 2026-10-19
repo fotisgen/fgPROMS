@@ -1,0 +1,24 @@
+# ============================================================
+#  fgPROMS benchmark: 2D steady conduction (distributed)
+#  d2T/dx2 + d2T/dy2 = 0 on a unit square, T = 300 on all
+#  four edges -> the unique harmonic solution is T = 300
+#  everywhere.
+# ============================================================
+MODEL Conduction2D
+  PARAMETER
+    Lx AS REAL DEFAULT 1.0
+    Ly AS REAL DEFAULT 1.0
+    T0 AS REAL DEFAULT 300.0
+  DISTRIBUTION
+    Axial : Lx : 11 ;
+    Radial : Ly : 11 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial, Radial) OF REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) + PARTIAL(T, Radial, Radial) = 0 ;
+  BOUNDARY
+    T = T0 AT Axial = 0 ;
+    T = T0 AT Axial = Lx ;
+    T = T0 AT Radial = 0 ;
+    T = T0 AT Radial = Ly ;
+END

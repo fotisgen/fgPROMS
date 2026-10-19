@@ -9,6 +9,7 @@ Produces:
 """
 from __future__ import annotations
 
+import itertools
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -176,14 +177,16 @@ def analyze(model: Model) -> dict:
                                "type": d.type_text,
                                "default_node": d.default, "line": d.line})
     for d in model.variables:
-        m_dist = re.match(r"DISTRIBUTION\s*\(\s*(\w+)\s*\)", d.type_text or "",
-                          re.IGNORECASE)
+        m_dist = re.match(r"DISTRIBUTION\s*\(\s*([\w,\s]+)\s*\)",
+                          d.type_text or "", re.IGNORECASE)
         for nm in d.names:
             if m_dist:
+                doms = tuple(x.strip().lower()
+                             for x in m_dist.group(1).split(","))
                 dist_decls.append({"name": nm, "lower": nm.lower(),
                                    "type": d.type_text,
                                    "default_node": d.default, "line": d.line,
-                                   "domain": m_dist.group(1).lower()})
+                                   "domains": doms})
                 continue
             m_arr = _array_dims(d.type_text)
             if m_arr:
@@ -244,29 +247,38 @@ def analyze(model: Model) -> dict:
         blocked = True
 
     # ---- expand distributed variables into point-wise unknowns -------------
-    dist_vars: Dict[str, str] = {dv["lower"]: dv["domain"] for dv in dist_decls}
+    dist_vars: Dict[str, tuple] = {dv["lower"]: dv["domains"]
+                                   for dv in dist_decls}
     if dist_decls:
         new_vars: List[dict] = []
         for dv in dist_decls:
-            dom = domains.get(dv["domain"])
-            if dom is None:
-                messages.append({"level": "error", "code": "err_dist_domain",
-                                 "args": {"name": dv["name"],
-                                          "domain": dv["domain"]}})
-                blocked = True
+            dims = []
+            ok = True
+            for dname in dv["domains"]:
+                dom = domains.get(dname)
+                if dom is None:
+                    messages.append({"level": "error", "code": "err_dist_domain",
+                                     "args": {"name": dv["name"],
+                                              "domain": dname}})
+                    blocked = True
+                    ok = False
+                    break
+                dims.append(dom)
+            if not ok:
                 continue
-            array_sizes[dv["lower"]] = (dom.points,)
-            for k in range(1, dom.points + 1):
-                key = f"{dv['lower']}({k})"
+            array_sizes[dv["lower"]] = tuple(dd.points for dd in dims)
+            for combo in itertools.product(*[range(1, dd.points + 1)
+                                             for dd in dims]):
+                key = f"{dv['lower']}({','.join(str(c) for c in combo)})"
                 if key in seen:
                     messages.append({"level": "warn", "code": "warn_duplicate",
                                      "args": {"name": key}})
                     continue
                 seen.add(key)
-                new_vars.append({"name": f"{dv['name']}({k})", "lower": key,
-                                 "base": dv["lower"], "type": dv["type"],
-                                 "default_node": dv["default_node"],
-                                 "line": dv["line"]})
+                new_vars.append({
+                    "name": f"{dv['name']}({','.join(str(c) for c in combo)})",
+                    "lower": key, "base": dv["lower"], "type": dv["type"],
+                    "default_node": dv["default_node"], "line": dv["line"]})
         variables = variables + new_vars
     for v in variables:
         base_map[v["lower"]] = v["base"]
@@ -689,10 +701,13 @@ def analyze(model: Model) -> dict:
         "bounds": [{"name": b.name, "lo": bounds_info.get(b.name.lower(), (None, None))[0],
                     "hi": bounds_info.get(b.name.lower(), (None, None))[1]}
                    for b in model.bounds],
-        "distributed": [{"name": dv["name"], "domain": dv["domain"],
-                         "points": domains[dv["domain"]].points,
-                         "extent": domains[dv["domain"]].extent}
-                        for dv in dist_decls if dv["domain"] in domains],
+        "distributed": [{"name": dv["name"],
+                         "domains": [{"name": domains[dn].name,
+                                      "points": domains[dn].points,
+                                      "extent": domains[dn].extent}
+                                     for dn in dv["domains"]
+                                     if dn in domains]}
+                        for dv in dist_decls],
         "estimated": [p["name"] for p in params if p["lower"] in estimate_names],
         "data": [{"var": d.name,
                   "points": [{"t": pt[0], "value": pt[1]}

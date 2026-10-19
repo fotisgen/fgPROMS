@@ -1,16 +1,19 @@
-"""Distributed (1D) system expansion — method of lines.
+"""Distributed (1D/2D) system expansion — method of lines.
 
-A MODEL may declare a DISTRIBUTION domain (name, extent L, N points) and
-variables of type DISTRIBUTION(Axial). Spatial operators PARTIAL(T, Axial)
-and PARTIAL(T, Axial, Axial) are replaced by finite-difference stencils:
+A MODEL may declare DISTRIBUTION domains (name, extent L, N points) and
+variables of type DISTRIBUTION(Axial[, Radial]) — one dimension per domain.
+Spatial operators PARTIAL(T, dom) and PARTIAL(T, dom, dom) are replaced by
+finite-difference stencils:
 
-    interior (2..N-1):  central differences
-    boundary (1, N):    one-sided differences
+    interior:      central differences
+    domain edges:  one-sided differences (boundary equations)
 
 Equations containing distributed references expand into one equation per
-interior point; BOUNDARY equations (with an `AT Axial = pos` clause) expand
-at the corresponding boundary point. Everything downstream (indexed
-variables, SIGMA, Jacobians, BDF) works on the expanded system unchanged.
+interior grid point; BOUNDARY equations (with `AT dom = pos`) expand along
+the whole edge. Corner points receive boundary equations from every edge
+they touch; exact duplicates are deduplicated.
+
+INT(expr, dom) computes a trapezoidal integral over a 1D domain.
 """
 from __future__ import annotations
 
@@ -61,6 +64,20 @@ def _eq_contains(eq, dist_vars: Set[str]) -> bool:
             or any(_eq_contains(e, dist_vars) for e in eq.else_eqs))
 
 
+def _eq_vars(eq, dist_vars: Set[str]) -> Set[str]:
+    out: Set[str] = set()
+    if isinstance(eq, EqEquation):
+        for node in (eq.lhs, eq.rhs):
+            for v in dist_vars:
+                if _contains_distributed(node, {v}):
+                    out.add(v)
+    else:
+        for v in dist_vars:
+            if _eq_contains(eq, {v}):
+                out.add(v)
+    return out
+
+
 def _div(a, b):
     return BinOp("/", a, b)
 
@@ -69,93 +86,130 @@ def _num(v: float) -> Num:
     return Num(v)
 
 
-def _stencil(var_name: str, k: int, domain: DomainInfo,
-             order: int, at_boundary: Optional[int]) -> Node:
-    """Difference stencil for PARTIAL(T, A[, A]) at point k.
-    at_boundary: None (interior), 1 (first point), N (last point)."""
-    n = domain.points
-    dz = domain.dz
+def _stencil(var_name: str, pt: Dict[str, int], dom: str, order: int,
+             edge: Optional[str], domains: Dict[str, DomainInfo],
+             dist_vars: Dict[str, tuple]) -> Node:
+    """Difference stencil for PARTIAL(T, dom[, dom]) at the current point."""
+    dims = dist_vars[var_name.lower()]
+    d = domains[dom]
+    n, dz = d.points, d.dz
+    k = pt[dom]
 
-    def T(j: int) -> Node:
-        return Indexed(var_name, [_num(j)])
+    def T_at(idx: int) -> Node:
+        return Indexed(var_name,
+                       [_num(idx if dd == dom else pt[dd]) for dd in dims])
 
-    if at_boundary is None:
+    at_first = (edge == dom and k == 1)
+    at_last = (edge == dom and k == n)
+    if at_first:
         if order == 1:
-            return _div(BinOp("-", T(k + 1), T(k - 1)), _num(2.0 * dz))
-        return _div(BinOp("+", BinOp("-", T(k + 1), BinOp("*", _num(2.0), T(k))),
-                             T(k - 1)), _num(dz * dz))
-    if at_boundary == 1:
+            return _div(BinOp("-", T_at(2), T_at(1)), _num(dz))
+        return _div(BinOp("+", BinOp("-", T_at(3), BinOp("*", _num(2.0),
+                                                          T_at(2))),
+                          T_at(1)), _num(dz * dz))
+    if at_last:
         if order == 1:
-            return _div(BinOp("-", T(2), T(1)), _num(dz))
-        return _div(BinOp("+", BinOp("-", T(3), BinOp("*", _num(2.0), T(2))),
-                             T(1)), _num(dz * dz))
+            return _div(BinOp("-", T_at(n), T_at(n - 1)), _num(dz))
+        return _div(BinOp("+", BinOp("-", T_at(n),
+                                     BinOp("*", _num(2.0), T_at(n - 1))),
+                          T_at(n - 2)), _num(dz * dz))
     if order == 1:
-        return _div(BinOp("-", T(n), T(n - 1)), _num(dz))
-    return _div(BinOp("+", BinOp("-", T(n), BinOp("*", _num(2.0), T(n - 1))),
-                         T(n - 2)), _num(dz * dz))
+        return _div(BinOp("-", T_at(k + 1), T_at(k - 1)), _num(2.0 * dz))
+    return _div(BinOp("+", BinOp("-", T_at(k + 1),
+                                 BinOp("*", _num(2.0), T_at(k))),
+                      T_at(k - 1)), _num(dz * dz))
 
 
-def _expand_at(node, k: int, domain: DomainInfo, dist_vars: Set[str],
-               at_boundary: Optional[int]):
+def _expand_at(node, pt: Dict[str, int], domains: Dict[str, DomainInfo],
+               dist_vars: Dict[str, tuple], edge: Optional[str]):
     if isinstance(node, (Num, Str)):
         return node
     if isinstance(node, Var):
         if node.name.lower() in dist_vars:
-            return Indexed(node.name, [_num(k)])
+            dims = dist_vars[node.name.lower()]
+            return Indexed(node.name, [_num(pt[d]) for d in dims])
         return node
     if isinstance(node, Deriv):
         if node.name.lower() in dist_vars:
-            return Deriv(f"{node.name}({k})")
+            dims = dist_vars[node.name.lower()]
+            return Deriv(f"{node.name}({','.join(str(pt[d]) for d in dims)})")
         return node
     if isinstance(node, Indexed):
-        return Indexed(node.name, [_expand_at(i, k, domain, dist_vars,
-                                              at_boundary)
+        return Indexed(node.name, [_expand_at(i, pt, domains, dist_vars, edge)
                                    for i in node.indices])
     if isinstance(node, UnOp):
-        return UnOp(node.op, _expand_at(node.x, k, domain, dist_vars,
-                                        at_boundary))
+        return UnOp(node.op, _expand_at(node.x, pt, domains, dist_vars, edge))
     if isinstance(node, BinOp):
         return BinOp(node.op,
-                     _expand_at(node.l, k, domain, dist_vars, at_boundary),
-                     _expand_at(node.r, k, domain, dist_vars, at_boundary))
+                     _expand_at(node.l, pt, domains, dist_vars, edge),
+                     _expand_at(node.r, pt, domains, dist_vars, edge))
     if isinstance(node, Func):
-        if node.name == "PARTIAL":
-            if len(node.args) == 2:
-                v = node.args[0]
-                if not isinstance(v, Var):
-                    raise ValueError("PARTIAL requires a variable")
-                return _stencil(v.name, k, domain, 1, at_boundary)
-            if len(node.args) == 3:
-                v = node.args[0]
-                if not isinstance(v, Var):
-                    raise ValueError("PARTIAL requires a variable")
-                return _stencil(v.name, k, domain, 2, at_boundary)
-            raise ValueError("PARTIAL takes 2 or 3 arguments")
-        return Func(node.name, [_expand_at(a, k, domain, dist_vars,
-                                           at_boundary) for a in node.args])
+        if node.name == "PARTIAL" and len(node.args) in (2, 3):
+            v = node.args[0]
+            dom_arg = node.args[1]
+            if not isinstance(v, Var) or not isinstance(dom_arg, Var):
+                raise ValueError("PARTIAL requires a variable and a domain")
+            dom = dom_arg.name.lower()
+            if dom not in domains:
+                raise ValueError(f"undeclared distribution domain "
+                                 f"{dom_arg.name}")
+            if v.name.lower() not in dist_vars or dom not in dist_vars[v.name.lower()]:
+                raise ValueError(f"{v.name} is not distributed over "
+                                 f"{dom_arg.name}")
+            order = 2 if len(node.args) == 3 else 1
+            return _stencil(v.name, pt, dom, order, edge, domains, dist_vars)
+        return Func(node.name, [_expand_at(a, pt, domains, dist_vars, edge)
+                                for a in node.args])
     if isinstance(node, IfExpr):
-        return IfExpr(_expand_at(node.cond, k, domain, dist_vars, at_boundary),
-                      _expand_at(node.then, k, domain, dist_vars, at_boundary),
-                      _expand_at(node.els, k, domain, dist_vars, at_boundary))
+        return IfExpr(_expand_at(node.cond, pt, domains, dist_vars, edge),
+                      _expand_at(node.then, pt, domains, dist_vars, edge),
+                      _expand_at(node.els, pt, domains, dist_vars, edge))
     raise ValueError(f"cannot expand {type(node).__name__}")
 
 
-def _expand_eq(eq, k: int, domain: DomainInfo, dist_vars: Set[str],
-               at_boundary: Optional[int]) -> Equation:
+def _expand_eq(eq, pt, domains, dist_vars, edge) -> Equation:
     if isinstance(eq, EqEquation):
         return EqEquation(
-            _expand_at(eq.lhs, k, domain, dist_vars, at_boundary),
-            _expand_at(eq.rhs, k, domain, dist_vars, at_boundary), eq.op)
+            _expand_at(eq.lhs, pt, domains, dist_vars, edge),
+            _expand_at(eq.rhs, pt, domains, dist_vars, edge), eq.op)
     return IfEquation(
-        _expand_at(eq.cond, k, domain, dist_vars, at_boundary),
-        [_expand_eq(e, k, domain, dist_vars, at_boundary)
-         for e in eq.then_eqs],
-        [_expand_eq(e, k, domain, dist_vars, at_boundary)
-         for e in eq.else_eqs])
+        _expand_at(eq.cond, pt, domains, dist_vars, edge),
+        [_expand_eq(e, pt, domains, dist_vars, edge) for e in eq.then_eqs],
+        [_expand_eq(e, pt, domains, dist_vars, edge) for e in eq.else_eqs])
+
+
+def _product_interior(doms: List[str],
+                      domains: Dict[str, DomainInfo]) -> List[Dict[str, int]]:
+    """All interior point combinations over the given domains."""
+    pts: List[Dict[str, int]] = [{}]
+    for d in doms:
+        n = domains[d].points
+        new = []
+        for pt in pts:
+            for k in range(2, n):
+                p2 = dict(pt)
+                p2[d] = k
+                new.append(p2)
+        pts = new
+    return pts
+
+
+def _product_full(doms: List[str],
+                  domains: Dict[str, DomainInfo]) -> List[Dict[str, int]]:
+    pts: List[Dict[str, int]] = [{}]
+    for d in doms:
+        n = domains[d].points
+        new = []
+        for pt in pts:
+            for k in range(1, n + 1):
+                p2 = dict(pt)
+                p2[d] = k
+                new.append(p2)
+        pts = new
+    return pts
 
 
 def _resolve_boundary_point(at_expr, domain: DomainInfo, env) -> Optional[int]:
-    """Evaluate the AT position: 0 -> first point, extent -> last point."""
     if at_expr is None:
         return None
     try:
@@ -170,10 +224,11 @@ def _resolve_boundary_point(at_expr, domain: DomainInfo, env) -> Optional[int]:
     return None
 
 
+# --------------------------------------------------------------------------
+# INT(expr, dom): trapezoidal integral over a 1D domain
+# --------------------------------------------------------------------------
 def _expand_int(node, domains: Dict[str, DomainInfo],
-                dist_vars: Set[str]) -> Node:
-    """Replace INT(expr, domain) with a trapezoidal sum over the domain
-    grid:  dz * (0.5*e1 + e2 + ... + e_{N-1} + 0.5*eN)."""
+                dist_vars: Dict[str, tuple]) -> Node:
     if isinstance(node, Func) and node.name == "INT" and len(node.args) == 2:
         expr = node.args[0]
         dom_arg = node.args[1]
@@ -182,9 +237,17 @@ def _expand_int(node, domains: Dict[str, DomainInfo],
         dom = domains.get(dom_arg.name.lower())
         if dom is None:
             raise ValueError(f"undeclared distribution domain {dom_arg.name}")
+        # the integrated expression must be 1D over exactly this domain
+        involved = set()
+        for v, dims in dist_vars.items():
+            if _contains_distributed(expr, {v}):
+                involved |= set(dims)
+        if involved != {dom_arg.name.lower()}:
+            raise ValueError("INT requires a 1D variable over the same domain")
         terms = []
         for k in range(1, dom.points + 1):
-            ek = _expand_at(expr, k, dom, dist_vars, None)
+            pt = {dom_arg.name.lower(): k}
+            ek = _expand_at(expr, pt, domains, dist_vars, None)
             if k == 1 or k == dom.points:
                 terms.append(BinOp("*", _num(0.5), ek))
             else:
@@ -222,29 +285,31 @@ def _expand_int_eq(eq, domains, dist_vars) -> Equation:
                        for e in eq.else_eqs])
 
 
+# --------------------------------------------------------------------------
+# Main entry point
+# --------------------------------------------------------------------------
 def expand_equations(model: Model, domains: Dict[str, DomainInfo],
-                     dist_vars: Dict[str, str], env) -> List[Equation]:
+                     dist_vars: Dict[str, tuple], env) -> List[Equation]:
     """Expand EQUATION and BOUNDARY sections into concrete per-point
-    equations. INT(..., domain) nodes become trapezoidal sums first;
-    equations without distributed references pass through."""
+    equations. INT nodes become trapezoidal sums first."""
     out: List[Equation] = []
     for eq in model.equations:
-        eq = _expand_int_eq(eq, domains, set(dist_vars))
-        if not _eq_contains(eq, set(dist_vars)):
+        eq = _expand_int_eq(eq, domains, dist_vars)
+        vars_ = _eq_vars(eq, set(dist_vars))
+        if not vars_:
             out.append(eq)
             continue
-        # find the single domain involved
-        involved = {dist_vars[v] for v in dist_vars
-                    if _eq_contains(eq, {v})}
-        if len(involved) != 1:
-            raise ValueError("equation mixes multiple distribution domains")
-        dom_key = next(iter(involved))
-        if dom_key not in domains:
-            raise ValueError(f"undeclared distribution domain {dom_key}")
-        domain = domains[dom_key]
-        for k in range(2, domain.points):
-            out.append(_expand_eq(eq, k, domain, set(dist_vars), None))
+        involved: List[str] = []
+        for v in vars_:
+            for d in dist_vars[v]:
+                if d not in domains:
+                    raise ValueError(f"undeclared distribution domain {d}")
+                if d not in involved:
+                    involved.append(d)
+        for pt in _product_interior(involved, domains):
+            out.append(_expand_eq(eq, pt, domains, dist_vars, None))
 
+    seen: Set[str] = set()
     for bc in model.boundaries:
         if not bc.at_domain or bc.at_expr is None:
             raise ValueError("boundary equation requires AT <domain> = <pos>")
@@ -252,11 +317,27 @@ def expand_equations(model: Model, domains: Dict[str, DomainInfo],
         if dom_key not in domains:
             raise ValueError(f"unknown distribution domain {bc.at_domain}")
         domain = domains[dom_key]
-        if not _eq_contains(bc.eq, set(dist_vars)):
-            raise ValueError("boundary equation has no distributed variable")
-        pt = _resolve_boundary_point(bc.at_expr, domain, env)
-        if pt is None:
+        edge_pos = _resolve_boundary_point(bc.at_expr, domain, env)
+        if edge_pos is None:
             raise ValueError(
                 f"boundary position must be 0 or the domain extent")
-        out.append(_expand_eq(bc.eq, pt, domain, set(dist_vars), pt))
+        vars_ = _eq_vars(bc.eq, set(dist_vars))
+        if not vars_:
+            raise ValueError("boundary equation has no distributed variable")
+        other_dims: List[str] = []
+        for v in vars_:
+            for d in dist_vars[v]:
+                if d != dom_key and d not in other_dims:
+                    other_dims.append(d)
+        for pt in _product_full(other_dims, domains):
+            pt2 = dict(pt)
+            pt2[dom_key] = edge_pos
+            e = _expand_eq(bc.eq, pt2, domains, dist_vars, dom_key)
+            key = expr_str(e.lhs) + " = " + expr_str(e.rhs) \
+                if isinstance(e, EqEquation) else expr_str(e.cond)
+            key += " | " + ",".join(f"{d}:{pt2[d]}" for d in sorted(pt2))
+            if key in seen:
+                continue   # duplicate corner condition — deduplicate
+            seen.add(key)
+            out.append(e)
     return out
