@@ -69,6 +69,9 @@ const I18N = {
     boundsTitle: "Όρια μεταβλητών",
     lower: "Κάτω όριο",
     upper: "Άνω όριο",
+    flowsheet: "Flowsheet",
+    unitsTitle: "Μονάδες",
+    unitType: "Τύπος μονάδας",
   },
   en: {
     open: "Open",
@@ -139,6 +142,9 @@ const I18N = {
     boundsTitle: "Variable bounds",
     lower: "Lower bound",
     upper: "Upper bound",
+    flowsheet: "Flowsheet",
+    unitsTitle: "Units",
+    unitType: "Unit type",
   },
 };
 
@@ -178,6 +184,11 @@ const MSG = {
     warn_bounds_invalid: "Μη έγκυρα όρια για «{name}» — αγνοήθηκαν.",
     err_opt_dynamic: "Η βελτιστοποίηση με παραγώγους ($) δεν υποστηρίζεται ακόμη.",
     err_coolprop_missing: "Η συνάρτηση ιδιοτήτων «{name}» απαιτεί το πακέτο CoolProp. Εγκατέστησέ το (pip install coolprop) ή ξανατρέξε το run.bat.",
+    err_unknown_unit: "Άγνωστος τύπος μονάδας «{type}» για τη μονάδα «{name}». Ορίστηκε αντίστοιχο MODEL στο ίδιο αρχείο;",
+    err_duplicate_unit: "Διπλή δήλωση μονάδας «{name}».",
+    err_flowsheet_dynamic: "Η μονάδα «{unit}» περιέχει δυναμικά στοιχεία ($ ή SCHEDULE) — δεν υποστηρίζονται ακόμη σε flowsheets.",
+    warn_process_set_ignored: "Το SET «{name}» του PROCESS αγνοήθηκε (άγνωστο στοιχείο).",
+    info_flowsheet_summary: "Flowsheet «{name}»: {nu} μονάδες, {nv} μεταβλητές, {ne} εξισώσεις.",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -213,5 +224,10 @@ const MSG = {
     warn_bounds_invalid: "Invalid bounds for “{name}” — ignored.",
     err_opt_dynamic: "Optimization with derivatives ($) is not yet supported.",
     err_coolprop_missing: "Property function “{name}” requires the CoolProp package. Install it (pip install coolprop) or re-run run.bat.",
+    err_unknown_unit: "Unknown unit type “{type}” for unit “{name}”. Is the matching MODEL defined in the same file?",
+    err_duplicate_unit: "Duplicate unit declaration “{name}”.",
+    err_flowsheet_dynamic: "Unit “{unit}” contains dynamic elements ($ or SCHEDULE) — not yet supported in flowsheets.",
+    warn_process_set_ignored: "PROCESS SET “{name}” was ignored (unknown element).",
+    info_flowsheet_summary: "Flowsheet “{name}”: {nu} units, {nv} variables, {ne} equations.",
   },
 };

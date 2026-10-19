@@ -1,0 +1,28 @@
+# ============================================================
+#  fgPROMS benchmark: two CSTRs in series (flowsheet)
+#  Reference: CA1 = CAin/(1 + k*V/F),  CA2 = CA1/(1 + k*V/F)
+#    R1.CA = 2/(1+5) = 1/3 = 0.3333
+#    R2.CA = (1/3)/(1+5) = 1/18 = 0.05556
+# ============================================================
+MODEL CSTRUnit
+  PARAMETER
+    V AS REAL DEFAULT 10.0    # volume, m3
+    k AS REAL DEFAULT 0.5     # rate constant, 1/h
+    F AS REAL DEFAULT 1.0     # volumetric flow, m3/h
+  VARIABLE
+    CAin AS REAL
+    CA   AS REAL
+    r    AS REAL
+  EQUATION
+    r = k * CA ;
+    F * CAin - F * CA - V * r = 0 ;
+END
+
+PROCESS TwoCSTR
+  UNIT
+    R1 AS CSTRUnit
+    R2 AS CSTRUnit
+  EQUATION
+    R1.CAin = 2.0 ;
+    R2.CAin = R1.CA ;
+END

@@ -244,6 +244,29 @@ class Bound:
 
 
 @dataclass
+class UnitDecl:
+    name: str
+    type_name: str
+    sets: List[Assignment]
+    line: int
+
+
+@dataclass
+class ProcessDef:
+    name: str
+    line: int
+    units: List[UnitDecl] = field(default_factory=list)
+    equations: List[Equation] = field(default_factory=list)
+    sets: List[Assignment] = field(default_factory=list)
+
+
+@dataclass
+class FileDef:
+    models: dict                        # name_lower -> Model
+    process: Optional[ProcessDef] = None
+
+
+@dataclass
 class Model:
     name: str
     line: int
@@ -376,6 +399,32 @@ class Parser:
     # -- model --------------------------------------------------------------
     def parse(self) -> Model:
         self.expect_kw("MODEL")
+        return self.parse_model_body()
+
+    def parse_file(self) -> FileDef:
+        """Parse a source file that may contain multiple MODEL definitions
+        plus an optional PROCESS flowsheet."""
+        models: dict = {}
+        process: Optional[ProcessDef] = None
+        while self.peek().kind != "EOF":
+            t = self.peek()
+            if t.kind == "IDENT" and t.value.upper() == "MODEL":
+                self.next()
+                m = self.parse_model_body()
+                models[m.name.lower()] = m
+            elif t.kind == "IDENT" and t.value.upper() == "PROCESS":
+                self.next()
+                process = self.parse_process_body()
+            else:
+                raise ParseError(f"Expected MODEL or PROCESS, found '{t.value}'",
+                                 t.line, t.col)
+        if not models and not process:
+            tok = self.peek()
+            raise ParseError("The file contains no MODEL or PROCESS",
+                             tok.line, tok.col)
+        return FileDef(models, process)
+
+    def parse_model_body(self) -> Model:
         name = self.expect_ident()
         model = Model(name=name.value, line=name.line)
 
@@ -424,10 +473,71 @@ class Parser:
             else:
                 raise ParseError(f"Unexpected token '{t.value}'", t.line, t.col)
 
-        t = self.peek()
-        if t.kind != "EOF":
-            raise ParseError(f"Unexpected content after END: '{t.value}'", t.line, t.col)
         return model
+
+    # -- process (flowsheet) ---------------------------------------------------
+    def parse_process_body(self) -> ProcessDef:
+        name = self.expect_ident()
+        p = ProcessDef(name=name.value, line=name.line)
+        while True:
+            t = self.peek()
+            if t.kind == "EOF":
+                raise ParseError("Unexpected end of file — expected END",
+                                 t.line, t.col)
+            if t.kind == "IDENT":
+                u = t.value.upper()
+                if u == "END":
+                    self.next()
+                    break
+                if u == "UNIT":
+                    self.next()
+                    p.units = self.parse_units()
+                elif u == "EQUATION":
+                    self.next()
+                    p.equations = self.parse_eq_list()
+                elif u == "SET":
+                    self.next()
+                    p.sets = self.parse_assignments()
+                else:
+                    raise ParseError(f"Unexpected identifier '{t.value}' "
+                                     f"in PROCESS", t.line, t.col)
+            else:
+                raise ParseError(f"Unexpected token '{t.value}'", t.line, t.col)
+        return p
+
+    def parse_units(self) -> List[UnitDecl]:
+        units: List[UnitDecl] = []
+        while (self.peek().kind == "IDENT"
+               and self.peek().value.upper() not in RESERVED):
+            name_tok = self.next()
+            self.expect_kw("AS")
+            type_tok = self.expect_ident()
+            sets: List[Assignment] = []
+            # unit-level SET is recognised only when it is followed by an
+            # undotted assignment (`SET V := 20`); a PROCESS-level SET
+            # section (`SET R1.V := 20`) is left for the process body
+            if (self.at_kw("SET") and self.peek(1).kind == "IDENT"
+                    and self.peek(2).kind == "OP"
+                    and self.peek(2).value in (":=", "=")):
+                self.next()
+                while (self.peek().kind == "IDENT"
+                       and self.peek().value.upper() not in RESERVED
+                       and self.peek(1).kind == "OP"
+                       and self.peek(1).value in (":=", "=")):
+                    n_tok = self.next()
+                    t2 = self.peek()
+                    if t2.kind == "OP" and t2.value in (":=", "="):
+                        self.next()
+                    else:
+                        raise ParseError("Expected ':=' in unit SET",
+                                         t2.line, t2.col)
+                    v = self.parse_expr()
+                    if self.at_op(";"):
+                        self.next()
+                    sets.append(Assignment(n_tok.value, v, n_tok.line))
+            units.append(UnitDecl(name_tok.value, type_tok.value, sets,
+                                  name_tok.line))
+        return units
 
     # -- declarations --------------------------------------------------------
     def parse_decls(self) -> List[Decl]:
@@ -476,6 +586,11 @@ class Parser:
         while self.peek().kind == "IDENT" and self.peek().value.upper() not in RESERVED:
             tok = self.next()
             line = tok.line
+            name = tok.value
+            # dotted name: Unit.parameter (PROCESS-level SET)
+            while self.at_op(".") and self.peek(1).kind == "IDENT":
+                self.next()
+                name += "." + self.next().value
             t = self.peek()
             if t.kind == "OP" and t.value in (":=", "="):
                 self.next()
@@ -484,7 +599,7 @@ class Parser:
             value = self.parse_expr()
             if self.at_op(";"):
                 self.next()
-            assigns.append(Assignment(tok.value, value, line))
+            assigns.append(Assignment(name, value, line))
         return assigns
 
     # -- equations -------------------------------------------------------------
@@ -642,7 +757,12 @@ class Parser:
                         break
                 self.expect_op(")")
                 return Func(u, args)
-            return Var(t.value)
+            # dotted name: unit.variable (flowsheet connections)
+            name = t.value
+            while self.at_op(".") and self.peek(1).kind == "IDENT":
+                self.next()
+                name += "." + self.next().value
+            return Var(name)
         if t.kind == "OP" and t.value == "(":
             self.next()
             x = self.parse_expr()
@@ -652,8 +772,13 @@ class Parser:
 
 
 # --------------------------------------------------------------------------
-# Public entry point
+# Public entry points
 # --------------------------------------------------------------------------
 def parse_model(text: str) -> Model:
-    """Parse fgPROMS source text into a Model AST."""
+    """Parse fgPROMS source text into a single Model AST."""
     return Parser(text).parse()
+
+
+def parse_file(text: str) -> FileDef:
+    """Parse fgPROMS source text into a FileDef (models + optional process)."""
+    return Parser(text).parse_file()

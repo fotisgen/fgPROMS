@@ -5,7 +5,7 @@ CodeMirror.defineMode("gproms", function () {
     "SET", "DEFAULT", "IF", "THEN", "ELSE", "CASE", "SWITCH", "CONTINUE",
     "FOR", "TO", "STEP", "SEQUENCE", "AS", "TRUE", "FALSE", "AND", "OR",
     "NOT", "REAL", "INTEGER", "LOGICAL", "OPTIMIZE", "MAXIMIZE", "MINIMIZE",
-    "BOUNDS",
+    "BOUNDS", "PROCESS", "UNIT",
   ];
   const FUNC = ["EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN",
                 "SIGN", "MAX", "MIN", "SIGMA"];

@@ -247,6 +247,43 @@ async function exportCsv() {
   }
 }
 
+/* ---------------- flowsheet diagram ---------------- */
+function flowsheetDiagram(m) {
+  const units = m.units || [];
+  if (!units.length) return "";
+  const W = 150, H = 54, GX = 110;
+  const xs = {};
+  units.forEach((u, i) => { xs[u.name] = 30 + i * (W + GX); });
+  const edges = [];
+  for (const e of m.equations) {
+    if (e.kind !== "eq") continue;
+    const mm = e.text.match(/([A-Za-z_][\w]*)\.\w[\w.]*\s*=\s*([A-Za-z_][\w]*)\.\w/);
+    if (mm && xs[mm[1]] !== undefined && xs[mm[2]] !== undefined) {
+      edges.push([mm[2], mm[1]]);
+    }
+  }
+  const y = 34;
+  const totalW = 30 + units.length * (W + GX) + 60;
+  let svg = `<svg width="${totalW}" height="160" viewBox="0 0 ${totalW} 160" style="max-width:100%">`;
+  const cy = 126;
+  edges.forEach((pair, i) => {
+    const x1 = xs[pair[0]] + W / 2;
+    const x2 = xs[pair[1]] + W / 2;
+    const mx = (x1 + x2) / 2;
+    const my = cy + 22 * (i % 2);
+    svg += `<path d="M ${x1} ${y + H} Q ${mx} ${my} ${x2} ${y + H}" fill="none" stroke="#38bdf8" stroke-width="1.5"/>`;
+    svg += `<circle cx="${mx}" cy="${my}" r="3" fill="#38bdf8"/>`;
+  });
+  for (const u of units) {
+    const x = xs[u.name];
+    svg += `<rect x="${x}" y="${y}" width="${W}" height="${H}" rx="8" fill="#16223a" stroke="#38bdf8" stroke-width="1.5"/>`;
+    svg += `<text x="${x + W / 2}" y="${y + 23}" text-anchor="middle" fill="#dbe4f0" font-size="13" font-weight="600">${esc(u.name)}</text>`;
+    svg += `<text x="${x + W / 2}" y="${y + 40}" text-anchor="middle" fill="#8ea0bd" font-size="11">${esc(u.type)}</text>`;
+  }
+  svg += "</svg>";
+  return svg;
+}
+
 /* ---------------- run ---------------- */
 async function runModel() {
   setStatus(t("statusRunning"));
@@ -294,8 +331,9 @@ function renderModelTab(d) {
     return;
   }
   const df = m.dof;
-  const modeText = m.objective ? t("optimization")
-    : (m.isDynamic ? t("dynamic") : t("steady"));
+  const modeText = m.isProcess ? t("flowsheet")
+    : (m.objective ? t("optimization")
+      : (m.isDynamic ? t("dynamic") : t("steady")));
   let html = `<h3>${t("modelName")}: ${esc(m.name)}</h3>
   <div class="cards">
     <div class="card"><div class="card-num">${df.unknowns}</div><div class="card-label">${t("unknowns")}</div></div>
@@ -303,6 +341,15 @@ function renderModelTab(d) {
     <div class="card ${df.dof === 0 ? "ok" : "bad"}"><div class="card-num">${df.dof}</div><div class="card-label">${t("dof")}</div></div>
     <div class="card"><div class="card-num" style="font-size:15px">${modeText}</div><div class="card-label">${t("mode")}</div></div>
   </div>`;
+
+  if (m.isProcess && m.units && m.units.length) {
+    html += `<h3>${t("unitsTitle")} (${m.units.length})</h3>
+      <div class="flowsheet">${flowsheetDiagram(m)}</div>
+      <table class="grid"><thead><tr><th>${t("name")}</th><th>${t("unitType")}</th></tr></thead><tbody>`;
+    for (const u of m.units)
+      html += `<tr><td>${esc(u.name)}</td><td class="muted">${esc(u.type)}</td></tr>`;
+    html += "</tbody></table>";
+  }
 
   html += `<h3>${t("parameters")}</h3>
   <table class="grid"><thead><tr><th>${t("name")}</th><th>${t("type")}</th><th>${t("defaultValue")}</th><th>${t("value")}</th></tr></thead><tbody>`;
