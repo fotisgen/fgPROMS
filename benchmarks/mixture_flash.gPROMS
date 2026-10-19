@@ -1,0 +1,23 @@
+# ============================================================
+#  fgPROMS benchmark: real mixture flash (CoolProp HEOS)
+#  n-Butane[0.4] & Propane[0.6] at 2 bar:
+#    T_bubble = 258.9 K,  T_dew = 273.6 K
+#    at T = 270 K the mixture is two-phase: Q ~ 0.764
+#  All values are verified against direct CoolProp calls in
+#  the test suite.
+# ============================================================
+MODEL MixtureFlash
+  PARAMETER
+    T AS REAL DEFAULT 270.0      # K
+    P AS REAL DEFAULT 2.0E5      # Pa
+  VARIABLE
+    Qv AS REAL
+    Tb AS REAL
+    Td AS REAL
+    Hm AS REAL
+  EQUATION
+    Qv = Q('n-Butane[0.4]&Propane[0.6]', T, P) ;
+    Tb = TBUBBLE('n-Butane[0.4]&Propane[0.6]', P) ;
+    Td = TDEW('n-Butane[0.4]&Propane[0.6]', P) ;
+    Hm = H('n-Butane[0.4]&Propane[0.6]', T, P) ;
+END

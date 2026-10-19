@@ -9,7 +9,8 @@ CodeMirror.defineMode("gproms", function () {
   ];
   const FUNC = ["EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN",
                 "SIGN", "MAX", "MIN", "SIGMA", "CP", "CV", "RHO", "H", "S",
-                "VISC", "TC", "PC", "M"];
+                "VISC", "TC", "PC", "M", "U", "G", "Q", "TBUBBLE", "TDEW",
+                "PBUBBLE", "PDEW"];
   return {
     token: function (stream) {
       if (stream.eatSpace()) return null;

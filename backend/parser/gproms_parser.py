@@ -302,7 +302,8 @@ _SYM = {"**": "^"}
 # indexed array access like z(1)
 FUNC_NAMES = {"EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN", "SIGN",
               "MAX", "MIN", "SIGMA",
-              "CP", "CV", "RHO", "H", "S", "VISC", "TC", "PC", "M"}
+              "CP", "CV", "RHO", "H", "S", "VISC", "TC", "PC", "M",
+              "U", "G", "Q", "TBUBBLE", "TDEW", "PBUBBLE", "PDEW"}
 
 
 def _join_type(toks: List[Token]) -> str:
