@@ -1,0 +1,17 @@
+# ============================================================
+#  fgPROMS library: Mixer
+#  Two inlet streams into one outlet (total + component balance).
+#  Feed properties are VARIABLEs for flowsheet connections.
+# ============================================================
+MODEL Mixer
+  VARIABLE
+    F1   AS REAL                 # inlet 1 flow, kg/s
+    F2   AS REAL                 # inlet 2 flow, kg/s
+    C1   AS REAL                 # inlet 1 concentration
+    C2   AS REAL                 # inlet 2 concentration
+    Fout AS REAL                 # outlet flow, kg/s
+    Cout AS REAL                 # outlet concentration
+  EQUATION
+    Fout = F1 + F2 ;
+    Fout * Cout = F1 * C1 + F2 * C2 ;
+END

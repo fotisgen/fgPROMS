@@ -1,0 +1,17 @@
+# ============================================================
+#  fgPROMS library: Pump
+#  Hydraulic power for an incompressible liquid.
+#      W = m * dP / (rho * eta)
+#  Specify m and dP with SET (standalone) or connect them.
+# ============================================================
+MODEL Pump
+  PARAMETER
+    rho AS REAL DEFAULT 1000.0   # density, kg/m3
+    eta AS REAL DEFAULT 0.75     # efficiency
+  VARIABLE
+    m  AS REAL                   # mass flow, kg/s
+    dP AS REAL                   # pressure rise, Pa
+    W  AS REAL                   # power, W
+  EQUATION
+    W = m * dP / (rho * eta) ;
+END

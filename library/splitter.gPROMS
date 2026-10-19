@@ -1,0 +1,15 @@
+# ============================================================
+#  fgPROMS library: Splitter
+#  Splits an inlet flow into two outlets with fraction s.
+# ============================================================
+MODEL Splitter
+  PARAMETER
+    s AS REAL DEFAULT 0.3        # fraction to outlet 1
+  VARIABLE
+    Fin AS REAL                  # inlet flow, kg/s
+    F1  AS REAL                  # outlet 1 flow, kg/s
+    F2  AS REAL                  # outlet 2 flow, kg/s
+  EQUATION
+    F1 = s * Fin ;
+    F2 = (1 - s) * Fin ;
+END

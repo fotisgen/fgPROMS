@@ -1,0 +1,18 @@
+# ============================================================
+#  fgPROMS library: Heater
+#  Simple sensible-heat heater (constant cp).
+#  Feed properties (m, Tin, Tout) are VARIABLEs so the unit can
+#  be connected in flowsheets; specify them with SET standalone:
+#      SET m := 1 ; Tin := 300 ; Tout := 340 ;
+# ============================================================
+MODEL Heater
+  PARAMETER
+    cp AS REAL DEFAULT 4200.0    # specific heat, J/kg/K
+  VARIABLE
+    m    AS REAL                 # mass flow, kg/s
+    Tin  AS REAL                 # inlet temperature, K
+    Tout AS REAL                 # outlet temperature, K
+    Q    AS REAL                 # duty, W
+  EQUATION
+    Q = m * cp * (Tout - Tin) ;
+END

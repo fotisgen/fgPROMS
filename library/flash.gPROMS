@@ -1,0 +1,24 @@
+# ============================================================
+#  fgPROMS library: Flash (isothermal, 3 components)
+#  Rachford-Rice equation for a 3-component mixture with fixed
+#  K-values. V = vapour fraction.
+# ============================================================
+MODEL Flash
+  PARAMETER
+    z1 AS REAL DEFAULT 0.40      # feed composition
+    z2 AS REAL DEFAULT 0.35
+    z3 AS REAL DEFAULT 0.25
+    K1 AS REAL DEFAULT 3.0       # K-values
+    K2 AS REAL DEFAULT 0.6
+    K3 AS REAL DEFAULT 0.05
+  VARIABLE
+    V  AS REAL DEFAULT 0.5       # vapour fraction
+    t1 AS REAL
+    t2 AS REAL
+    t3 AS REAL
+  EQUATION
+    t1 = z1 * (K1 - 1) / (1 + V * (K1 - 1)) ;
+    t2 = z2 * (K2 - 1) / (1 + V * (K2 - 1)) ;
+    t3 = z3 * (K3 - 1) / (1 + V * (K3 - 1)) ;
+    t1 + t2 + t3 = 0 ;
+END

@@ -1,0 +1,43 @@
+# ============================================================
+#  fgPROMS example: Mixer -> Splitter flowsheet
+#  Two streams are mixed and the outlet is split 30/70.
+#  Analytical: Fout = 1.5 + 0.5 = 2
+#              Cout = (1.5*2 + 0.5*0.8) / 2 = 1.7
+#              SP.F1 = 0.3*2 = 0.6,  SP.F2 = 1.4
+# ============================================================
+MODEL Mixer
+  VARIABLE
+    F1   AS REAL
+    F2   AS REAL
+    C1   AS REAL
+    C2   AS REAL
+    Fout AS REAL
+    Cout AS REAL
+  EQUATION
+    Fout = F1 + F2 ;
+    Fout * Cout = F1 * C1 + F2 * C2 ;
+END
+
+MODEL Splitter
+  PARAMETER
+    s AS REAL DEFAULT 0.3
+  VARIABLE
+    Fin AS REAL
+    F1  AS REAL
+    F2  AS REAL
+  EQUATION
+    F1 = s * Fin ;
+    F2 = (1 - s) * Fin ;
+END
+
+PROCESS MixSplit
+  UNIT
+    MX AS Mixer
+    SP AS Splitter
+  EQUATION
+    MX.F1 = 1.5 ;
+    MX.F2 = 0.5 ;
+    MX.C1 = 2.0 ;
+    MX.C2 = 0.8 ;
+    SP.Fin = MX.Fout ;
+END
