@@ -400,19 +400,16 @@ def solve_steady(model: Model, info: dict) -> dict:
 
 # --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
-# Dynamic solve — variable-order BDF (orders 1..5) with adaptive step control.
+# --------------------------------------------------------------------------
+# Dynamic solve — variable-order BDF (orders 1..5) with adaptive step control
+# and event-driven task phases.
 #
-#   * The BDF(k) derivative on a non-uniform mesh comes from the derivative
-#     of the Lagrange interpolant through (t_{n+1}, x) and the k previous
-#     points:  x'(t_{n+1}) = c0*x + sum_{j=1..k} c[j]*x_{n+1-j}
-#   * Local error estimate: embedded BDF(k-1) solution at the same step,
-#     scaled by h (difference estimator) -> O(h^{k+1}).
-#   * Step control:  h_new = 0.9*h*min(2, err^(-1/(k+1)))  with the
-#     SCHEDULE STEP as maximum (and initial) step.
-#   * Order control: after an accepted step the solver also tries order
-#     k+1 (up to 5) and adopts it when its estimate is clearly better;
-#     rejections lower the order.
-#   * fixed_h mode (tests): constant-step BDF2, no step/order control.
+#   * BDF(k) on a non-uniform mesh via Lagrange interpolant derivative.
+#   * Local error estimate: embedded BDF(k-1) solution, h-scaled.
+#   * Order climbing up to 5 when the higher-order estimate passes.
+#   * TASK phases integrate one at a time; a phase with `END WHEN cond`
+#     terminates when cond crosses zero (detected by sign change +
+#     bisection refinement), and the next phase chains from the crossing.
 # --------------------------------------------------------------------------
 def _bdf_coeffs(t_new: float, t_hist: List[float], k: int) -> List[float]:
     """Derivative coefficients of BDF(k) on a non-uniform mesh.
@@ -437,143 +434,71 @@ def _bdf_coeffs(t_new: float, t_hist: List[float], k: int) -> List[float]:
     return c
 
 
-def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> dict:
-    sch = info["_schedule"]
-    t0, t1, h0 = sch["t0"], sch["t1"], sch["step"]
-    tv = sch["var"].lower()
-    states: List[str] = info["_states"]
-    allv: List[str] = info["_unknowns"]
-    alg = [n for n in allv if n not in states]
-    base: Dict[str, float] = dict(info["_fixed_values"])
-    compiled = compile_model(model)
-    messages: List[dict] = []
-    idx = {n: i for i, n in enumerate(allv)}
+def _bdf1_step_solve(cur, je, allv, states, idx, base, tv, t_target,
+                     x_anchor, h):
+    """Solve one BDF1 step from the anchor state x_anchor at time t_target."""
     nv = len(allv)
+    x0 = np.array([x_anchor[n] for n in allv], dtype=float)
 
-    # pre-compile the analytic Jacobian ONCE — the structure is
-    # step-independent, only the BDF coefficients change per step
-    jeval = None
-    try:
-        jeval = compile_jacobian(compiled, allv, base,
-                                 deriv_names=tuple("$" + s for s in states),
-                                 param_names=(tv,),
-                                 array_sizes=info.get("_array_sizes"))
-    except Exception:
-        jeval = None
-
-    # ---- task phases: per-phase equation sets (TASK section) --------------
-    phases = info.get("_phases") or {}
-    phase_compiled = {}
-    for p, eqs in model.task_phases.items():
-        phase_compiled[p] = compile_model(Model(name=model.name, line=model.line,
-                                                equations=eqs))
-    cur_cache: Dict[str, tuple] = {}
-
-    def active_phase(tnow):
-        if not phases:
-            return None
-        for p, (s, e) in phases.items():
-            if s - 1e-9 <= tnow <= e + 1e-9:
-                return p
-        return None
-
-    def get_cur(tnow):
-        if not phases:
-            return compiled, jeval
-        active = active_phase(tnow)
-        if active is None:
-            return None, None
-        if active not in cur_cache:
-            comb = compiled + phase_compiled[active]
-            je = None
-            try:
-                je = compile_jacobian(comb, allv, base,
-                                      deriv_names=tuple("$" + s
-                                                        for s in states),
-                                      param_names=(tv,),
-                                      array_sizes=info.get("_array_sizes"))
-            except Exception:
-                je = None
-            cur_cache[active] = (comb, je)
-        return cur_cache[active]
-
-    steps_est = int(round((t1 - t0) / h0))
-    if steps_est < 1:
-        return {"success": False,
-                "messages": [{"level": "error", "code": "solve_failed",
-                              "args": {"detail": "t1 must be greater than t0"}}],
-                "values": None, "series": None, "maxResidual": None, "method": None}
-    if steps_est > 200000:
-        return {"success": False,
-                "messages": [{"level": "error", "code": "err_too_many_steps",
-                              "args": {"n": steps_est}}],
-                "values": None, "series": None, "maxResidual": None, "method": None}
-
-    prev: Dict[str, float] = {n: info["_initial_guess"].get(n, 0.0) for n in allv}
-
-    # ---- consistent initialisation: freeze states, free the algebraic
-    #      variables and the state derivatives -----------------------------
-    init_names = alg + ["$" + s for s in states]
-    init_x0: Dict[str, float] = {}
-    for n in alg:
-        init_x0[n] = prev[n]
-    for s in states:
-        init_x0["$" + s] = 0.0
-    if init_names:
-        init_base = dict(base)
-        init_base[tv] = t0
+    def fun(x):
+        env = dict(base)
+        env[tv] = t_target
+        for n, v in zip(allv, x):
+            env[n] = float(v)
         for s in states:
-            init_base[s] = prev[s]
-        cur0, _ = get_cur(t0)
-        if cur0 is None:
-            return {"success": False,
-                    "messages": [{"level": "error", "code": "solve_failed",
-                                  "args": {"detail":
-                                           "no active phase at t0"}}],
-                    "values": None, "series": None, "maxResidual": None,
-                    "method": None}
-        ok, sol, method, pairs = _root_solve(init_names, init_x0, init_base,
-                                             cur0,
-                                             array_sizes=info.get("_array_sizes"))
-        if not ok:
-            if method == "dof_mismatch":
-                msg = {"level": "error", "code": "err_dof_mismatch",
-                       "args": {"ne": len(init_names), "nu": len(init_names)}}
-            else:
-                msg = {"level": "error", "code": "solve_failed",
-                       "args": {"detail": "consistent initialisation: " + method}}
-            return {"success": False, "messages": [msg], "values": None,
-                    "series": None, "maxResidual": None, "method": None}
-        for n, v in zip(init_names, sol):
-            if not n.startswith("$"):
-                prev[n] = float(v)
-        messages.append({"level": "info", "code": "info_consistent_init", "args": {}})
+            i = idx[s]
+            env["$" + s] = (x[i] - x_anchor[s]) / h
+        r, _ = residuals(cur, env)
+        return np.where(np.isfinite(r), r, 1e10)
 
-    # derivatives at t0 come straight from the consistent initialisation —
-    # they seed the Euler-predictor error estimate of the first BDF1 step
-    f_init: Dict[str, float] = {}
-    if init_names and sol is not None:
-        for n, v in zip(init_names, sol):
-            if n.startswith("$"):
-                f_init[n[1:]] = float(v)
+    jac = None
+    if je is not None:
+        c1_map = {"$" + s: 1.0 / h for s in states}
 
-    # ---- variable-order BDF stepping ---------------------------------------
-    adaptive = fixed_h is None
-    h_cur = h0 if adaptive else fixed_h
-    h_max = h0 if adaptive else fixed_h
+        def jac_fn(x, _t=t_target, _c=c1_map):
+            return je.eval(x, {tv: _t}, _c)
+
+        jac = jac_fn
+        if not jacobian_is_available(jac, x0, allv, base):
+            jac = None
+    if jac is not None:
+        xs, ok, _ = _newton(fun, jac, x0)
+        if ok:
+            return True, xs
+    for m in ("hybr", "lm"):
+        try:
+            opts = {"maxfev": 2000} if m == "hybr" else {"maxiter": 2000}
+            cand = root(fun, x0, method=m, options=opts)
+            if cand.success:
+                env_c = dict(base)
+                env_c[tv] = t_target
+                for n, v in zip(allv, cand.x):
+                    env_c[n] = float(v)
+                rc, _ = residuals(cur, env_c)
+                if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                    return True, cand.x
+        except Exception:
+            continue
+    return False, None
+
+
+def _integrate_phase(cur, je, allv, states, idx, base, tv, t_start, t_end,
+                     x_start, cond_fn, times, series, h_max, adaptive,
+                     f0=None, max_steps=500000, rtol=1e-6, atol=1e-8):
+    """Adaptive variable-order BDF over [t_start, t_end] for ONE equation
+    set. Optional event detection: when cond_fn crosses zero upward the
+    phase stops at the (bisected) crossing point.
+
+    Returns (ok, t_final, x_final, f_final, err_msg, max_order_used)."""
+    nv = len(allv)
+    h_cur = h_max
     h_min = h_max * 1e-5
-    rtol, atol = 1e-6, 1e-8
-    max_steps = 500000
-    max_order = 5
-
-    times = [t0]
-    series = {n: [prev[n]] for n in allv}
-    x_hist: List[Dict[str, float]] = [dict(prev)]   # newest first
-    t_hist: List[float] = [t0]
-    f_hist: List[Dict[str, float]] = [f_init]       # derivative values
-    prev_phase = active_phase(t0)
-    phase_guard = 0
-    t = t0
+    t = t_start
+    x_hist: List[Dict[str, float]] = [dict(x_start)]
+    t_hist: List[float] = [t_start]
+    f_hist: List[Dict[str, float]] = []
+    if f0 is not None:
+        f_hist.append(dict(f0))
     order = 1
     max_order_used = 1
     steps_taken = 0
@@ -597,7 +522,7 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                 env["$" + s] = val
         return env
 
-    def bdf_res(x, tnext, hcur, k, cur):
+    def bdf_res(x, tnext, hcur, k):
         env = make_env(x, tnext, hcur, k)
         try:
             r, _ = residuals(cur, env)
@@ -606,13 +531,10 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
             return np.full(nv, 1e10)
 
     def solve_step(tnext, hcur, k):
-        cur, je = get_cur(tnext)
-        if cur is None:
-            return False, None
         x0 = np.array([(2.0 * x_hist[0][n] - x_hist[1][n])
                        if (n in states and len(x_hist) > 1) else x_hist[0][n]
                        for n in allv], dtype=float)
-        fun = lambda x: bdf_res(x, tnext, hcur, k, cur)
+        fun = lambda x: bdf_res(x, tnext, hcur, k)
         jac = None
         if je is not None:
             if k == 1:
@@ -648,28 +570,26 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
         return max(hcur * abs(xa[i] - xb[i]) / (atol + rtol * abs(xa[i]))
                    for i in range(nv))
 
-    while t < t1 - 1e-12:
-        # phase change: restart the integration (BDF1, small step, truncated
-        # history) so stale points from the previous phase do not corrupt
-        # the step across the discontinuity — do this BEFORE computing tnext
-        if phases:
-            ap = active_phase(t + h_cur)
-            if ap != prev_phase:
-                prev_phase = ap
-                order = 1
-                h_cur = min(h_cur, h_max * 0.1)
-                x_hist = x_hist[:1]
-                t_hist = t_hist[:1]
-                f_hist = f_hist[:1]
-                phase_guard = 3   # keep BDF1 for a few steps after a switch
+    cond_prev = None
+    if cond_fn is not None:
+        env0 = dict(base)
+        env0[tv] = t_start
+        for n in allv:
+            env0[n] = x_start[n]
+        try:
+            cond_prev = float(cond_fn(env0))
+        except Exception:
+            cond_prev = None
+
+    while t < t_end - 1e-12:
         tnext = t + h_cur
         final_step = False
-        if tnext >= t1:
-            tnext = t1
+        if tnext >= t_end:
+            tnext = t_end
             h_cur = tnext - t
             final_step = True
             if h_cur < h_min:   # vanishing final step: accept current state
-                t = t1
+                t = t_end
                 break
         ok, xk = solve_step(tnext, h_cur, order)
         if not ok:
@@ -677,51 +597,31 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                 h_cur = max(h_min, h_cur * 0.5)
                 order = max(1, order - 1)
                 continue
-            messages.append({"level": "error", "code": "dynamic_step_failed",
-                             "args": {"t": f"{t:.4g}",
-                                      "detail": "no convergence"}})
-            env = make_env(
-                np.array([x_hist[0][n] for n in allv], dtype=float),
-                t, h_cur, order)
-            r, ids = residuals(compiled, env)
-            maxr = max((abs(v) for v in r), default=0.0)
-            return {"success": False, "messages": messages,
-                    "values": dict(x_hist[0]),
-                    "series": {"t": times, "variables": series},
-                    "residuals": [{"id": i, "value": float(v)}
-                                  for i, v in zip(ids, r)],
-                    "maxResidual": maxr, "method": "BDF adaptive",
-                    "maxOrder": max_order_used}
+            return False, t, dict(x_hist[0]), f_hist[0] if f_hist else {}, \
+                "no convergence", max_order_used
 
         # ---- error estimate for the current order -------------------------
         if order == 1 and f_hist:
             # Euler predictor difference: |x1 - (x_n + h*f_n)|
             err = max(
-                h_cur * abs(xk[i] - (x_hist[0][n] + h_cur * f_hist[0].get(n, 0.0)))
+                h_cur * abs(xk[i] - (x_hist[0][n]
+                                     + h_cur * f_hist[0].get(n, 0.0)))
                 / (atol + rtol * abs(xk[i]))
                 for i, n in enumerate(allv) if n in states)
             if not states:
                 err = 0.2
-        elif order >= 2:
+        elif order == 1:
+            err = 0.2
+        else:
             ok1, x1 = solve_step(tnext, h_cur, order - 1)
             if ok1:
                 err = err_norm(xk, x1, h_cur)
             else:
                 err = 0.5
-        else:
-            err = 0.2
-
-        if adaptive and err > 1.0:
-            h_cur = max(h_min, h_cur * 0.9 *
-                        (1.0 / err) ** (1.0 / (order + 1)))
-            order = max(1, order - 1)
-            continue   # reject, retry from the same previous point
 
         adopted = xk
-        # ---- try the next order (up to 5): adopt when its own estimate
-        #      meets the tolerance (it is then clearly the better solution)
-        if (adaptive and not final_step and order < max_order
-                and phase_guard <= 0 and len(t_hist) >= order + 1):
+        if (adaptive and not final_step and order < 5
+                and len(t_hist) >= order + 1):
             okp, xp = solve_step(tnext, h_cur, order + 1)
             if okp:
                 errp = err_norm(xp, xk, h_cur)
@@ -730,6 +630,12 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                     order += 1
                     err = errp
 
+        if adaptive and err > 1.0:
+            h_cur = max(h_min, h_cur * 0.9 *
+                        (1.0 / err) ** (1.0 / (order + 1)))
+            order = max(1, order - 1)
+            continue
+
         if adaptive and not final_step:
             h_next = h_cur * 0.9 * min(
                 2.0, (1.0 / max(err, 1e-12)) ** (1.0 / (order + 1)))
@@ -737,6 +643,8 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
             h_next = h_cur
 
         # ---- accept ---------------------------------------------------------
+        t_pre = t
+        x_pre = dict(x_hist[0])
         new = {n: float(v) for n, v in zip(allv, adopted)}
         env_acc = make_env(np.array([new[n] for n in allv], dtype=float),
                            tnext, h_cur, order)
@@ -744,13 +652,11 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
         x_hist.insert(0, new)
         t_hist.insert(0, tnext)
         f_hist.insert(0, f_new)
-        if len(x_hist) > max_order + 1:
+        if len(x_hist) > 6:
             x_hist.pop()
             t_hist.pop()
             f_hist.pop()
         max_order_used = max(max_order_used, order)
-        if phase_guard > 0:
-            phase_guard -= 1
         if not adaptive and steps_taken >= 1:
             order = 2          # constant-step BDF2 (tests / fallback)
         t = tnext
@@ -759,32 +665,232 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
             series[n].append(new[n])
         steps_taken += 1
         if steps_taken > max_steps:
-            messages.append({"level": "error", "code": "dynamic_step_failed",
-                             "args": {"t": f"{t:.4g}",
-                                      "detail": "step limit reached"}})
-            break
+            return False, t, new, f_new, "step limit reached", max_order_used
+
+        # ---- event detection (END WHEN) -------------------------------------
+        event_hit = False
+        if cond_fn is not None and cond_prev is not None:
+            envn = dict(base)
+            envn[tv] = t
+            for n in allv:
+                envn[n] = new[n]
+            try:
+                cond_new = float(cond_fn(envn))
+            except Exception:
+                cond_new = cond_prev
+            if cond_prev <= 0.0 < cond_new:
+                ta_t, xa_d, va = t_pre, x_pre, cond_prev
+                tb_t, vb = t, cond_new
+                for _ in range(45):
+                    tm = 0.5 * (ta_t + tb_t)
+                    hb = tm - ta_t
+                    if hb < 1e-12:
+                        break
+                    okm, xm = _bdf1_step_solve(cur, je, allv, states, idx,
+                                               base, tv, tm, xa_d, hb)
+                    if not okm:
+                        break
+                    envm = dict(base)
+                    envm[tv] = tm
+                    for n, v in zip(allv, xm):
+                        envm[n] = float(v)
+                    try:
+                        vm = float(cond_fn(envm))
+                    except Exception:
+                        break
+                    if vm <= 0.0:
+                        ta_t, xa_d, va = tm, dict(zip(allv, xm)), vm
+                    else:
+                        tb_t, vb = tm, vm
+                # replace the accepted point with the refined crossing
+                t = ta_t
+                new = dict(xa_d)
+                x_hist[0] = new
+                t_hist[0] = ta_t
+                times[-1] = ta_t
+                for n in allv:
+                    series[n][-1] = xa_d[n]
+                cond_new = va
+                event_hit = True
+            cond_prev = cond_new
+
         h_cur = min(h_max, max(h_min, h_next))
-        if final_step:
+        if final_step or event_hit:
             break
+
+    return True, t, dict(x_hist[0]), f_hist[0] if f_hist else {}, None, \
+        max_order_used
+
+
+def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> dict:
+    sch = info["_schedule"]
+    t0, t1, h0 = sch["t0"], sch["t1"], sch["step"]
+    tv = sch["var"].lower()
+    states: List[str] = info["_states"]
+    allv: List[str] = info["_unknowns"]
+    alg = [n for n in allv if n not in states]
+    base: Dict[str, float] = dict(info["_fixed_values"])
+    compiled = compile_model(model)
+    messages: List[dict] = []
+    idx = {n: i for i, n in enumerate(allv)}
+    nv = len(allv)
+
+    steps_est = int(round((t1 - t0) / h0))
+    if steps_est < 1:
+        return {"success": False,
+                "messages": [{"level": "error", "code": "solve_failed",
+                              "args": {"detail": "t1 must be greater than t0"}}],
+                "values": None, "series": None, "maxResidual": None,
+                "method": None, "maxOrder": 1}
+    if steps_est > 200000:
+        return {"success": False,
+                "messages": [{"level": "error", "code": "err_too_many_steps",
+                              "args": {"n": steps_est}}],
+                "values": None, "series": None, "maxResidual": None,
+                "method": None, "maxOrder": 1}
+
+    # pre-compile the analytic Jacobian ONCE for the common equations
+    jeval = None
+    try:
+        jeval = compile_jacobian(compiled, allv, base,
+                                 deriv_names=tuple("$" + s for s in states),
+                                 param_names=(tv,),
+                                 array_sizes=info.get("_array_sizes"))
+    except Exception:
+        jeval = None
+
+    prev: Dict[str, float] = {n: info["_initial_guess"].get(n, 0.0) for n in allv}
+
+    # ---- consistent initialisation: freeze states, free the algebraic
+    #      variables and the state derivatives -----------------------------
+    init_names = alg + ["$" + s for s in states]
+    init_x0: Dict[str, float] = {}
+    for n in alg:
+        init_x0[n] = prev[n]
+    for s in states:
+        init_x0["$" + s] = 0.0
+    f_init: Dict[str, float] = {}
+    if init_names:
+        init_base = dict(base)
+        init_base[tv] = t0
+        for s in states:
+            init_base[s] = prev[s]
+        init_compiled = compiled
+        phases0 = info.get("_phases") or {}
+        if phases0:
+            first_p = next(iter(model.task_phases))
+            init_compiled = compiled + compile_model(
+                Model(name=model.name, line=model.line,
+                      equations=model.task_phases[first_p].equations))
+        ok, sol, method, pairs = _root_solve(init_names, init_x0, init_base,
+                                             init_compiled,
+                                             array_sizes=info.get("_array_sizes"))
+        if not ok:
+            if method == "dof_mismatch":
+                msg = {"level": "error", "code": "err_dof_mismatch",
+                       "args": {"ne": len(init_names), "nu": len(init_names)}}
+            else:
+                msg = {"level": "error", "code": "solve_failed",
+                       "args": {"detail": "consistent initialisation: " + method}}
+            return {"success": False, "messages": [msg], "values": None,
+                    "series": None, "maxResidual": None, "method": None,
+                    "maxOrder": 1}
+        for n, v in zip(init_names, sol):
+            if not n.startswith("$"):
+                prev[n] = float(v)
+            else:
+                f_init[n[1:]] = float(v)
+        messages.append({"level": "info", "code": "info_consistent_init",
+                         "args": {}})
+
+    adaptive = fixed_h is None
+    times = [t0]
+    series = {n: [prev[n]] for n in allv}
+    max_order_all = 1
+
+    phases = info.get("_phases") or {}
+    last_compiled = compiled
+
+    if phases:
+        # ---- phased integration: one BDF run per phase, chained -----------
+        t_cur = t0
+        f_hand = dict(f_init)
+        first_phase = True
+        ended_early = False
+        for pname, (s0, s1, hp) in phases.items():
+            ph = model.task_phases[pname]
+            cur = compile_model(Model(name=model.name, line=model.line,
+                                      equations=ph.equations))
+            last_compiled = cur
+            je = None
+            try:
+                je = compile_jacobian(
+                    cur, allv, base,
+                    deriv_names=tuple("$" + s for s in states),
+                    param_names=(tv,),
+                    array_sizes=info.get("_array_sizes"))
+            except Exception:
+                je = None
+            cond_fn = make_eval(ph.when) if ph.when is not None else None
+            if ended_early:
+                t_start = t_cur          # chain from the previous event
+            else:
+                t_start = max(s0, t_cur)
+            t_end = max(s1, t_start)
+            # if the end condition already holds at the start, skip the phase
+            if cond_fn is not None:
+                env0 = dict(base)
+                env0[tv] = t_start
+                for n in allv:
+                    env0[n] = prev[n]
+                try:
+                    if float(cond_fn(env0)) > 0.0:
+                        t_cur = t_start
+                        first_phase = False
+                        continue
+                except Exception:
+                    pass
+            hmax = hp if adaptive else fixed_h
+            f0 = dict(f_hand) if not first_phase else dict(f_init)
+            ok, t_f, prev, f_hand, emsg, mo = _integrate_phase(
+                cur, je, allv, states, idx, base, tv, t_start, t_end, prev,
+                cond_fn, times, series, hmax, adaptive, f0=f0)
+            max_order_all = max(max_order_all, mo)
+            first_phase = False
+            if not ok:
+                messages.append({"level": "error", "code": "dynamic_step_failed",
+                                 "args": {"t": f"{t_f:.4g}",
+                                          "detail": emsg or "no convergence"}})
+                break
+            ended_early = t_f < s1 - 1e-9
+            t_cur = t_f
+    else:
+        ok, t_f, prev, f_hand, emsg, mo = _integrate_phase(
+            compiled, jeval, allv, states, idx, base, tv, t0, t1, prev,
+            None, times, series, h0 if adaptive else fixed_h, adaptive,
+            f0=dict(f_init))
+        max_order_all = max(max_order_all, mo)
+        if not ok:
+            messages.append({"level": "error", "code": "dynamic_step_failed",
+                             "args": {"t": f"{t_f:.4g}",
+                                      "detail": emsg or "no convergence"}})
 
     env = dict(base)
     env[tv] = t1
     for n in allv:
-        env[n] = x_hist[0][n]
-    cur1, _ = get_cur(t1)
-    r, ids = residuals(cur1 if cur1 is not None else compiled, env)
+        env[n] = prev[n]
+    r, ids = residuals(last_compiled, env)
     maxr = max((abs(v) for v in r), default=0.0)
     method_label = "BDF adaptive" if adaptive else "BDF fixed"
     messages.append({"level": "info", "code": "dynamic_ok",
-                     "args": {"n": len(times), "t0": f"{t0:.6g}", "t1": f"{t1:.6g}",
-                              "h": f"{h_max:.6g}"}})
-    success = steps_taken <= max_steps and all(
-        m["code"] != "dynamic_step_failed" for m in messages)
-    return {"success": success, "messages": messages, "values": dict(x_hist[0]),
+                     "args": {"n": len(times), "t0": f"{t0:.6g}",
+                              "t1": f"{t1:.6g}", "h": f"{h0:.6g}"}})
+    success = all(m["code"] != "dynamic_step_failed" for m in messages)
+    return {"success": success, "messages": messages, "values": dict(prev),
             "series": {"t": times, "variables": series},
             "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
             "maxResidual": maxr, "method": method_label,
-            "maxOrder": max_order_used}
+            "maxOrder": max_order_all}
 
 
 # Optimization (scipy SLSQP) — the EQUATION section acts as the constraint

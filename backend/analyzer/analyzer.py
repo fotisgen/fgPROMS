@@ -268,11 +268,17 @@ def analyze(model: Model) -> dict:
             if s2.phase:
                 p0 = _eval_const(s2.t0, env)
                 p1 = _eval_const(s2.t1, env)
+                h2 = _eval_const(s2.step, env) if s2.step is not None else None
+                hs = float(h2) if h2 is not None else float(h or 1.0)
                 if p0 is not None and p1 is not None:
-                    phase_intervals[s2.phase.lower()] = (float(p0), float(p1))
+                    phase_intervals[s2.phase.lower()] = (float(p0), float(p1),
+                                                         hs)
 
     # ---- task phases validation -------------------------------------------
+    any_event_phase = False
     if model.task_phases:
+        any_event_phase = any(ph.when is not None
+                              for ph in model.task_phases.values())
         for p in model.task_phases:
             if p not in phase_intervals:
                 messages.append({"level": "warn", "code": "warn_phase_unused",
@@ -282,22 +288,29 @@ def analyze(model: Model) -> dict:
                 messages.append({"level": "error", "code": "err_phase_unknown",
                                  "args": {"phase": p}})
                 blocked = True
-        # the intervals must cover the whole horizon without gaps
+        # time-driven phases must cover the horizon without gaps; event
+        # phases chain dynamically and only need a correct starting point
         if phase_intervals and schedule is not None:
             ivs = sorted(phase_intervals.values())
-            if ivs and abs(ivs[0][0] - schedule["t0"]) > 1e-9:
-                messages.append({"level": "error", "code": "err_phase_gap",
-                                 "args": {}})
-                blocked = True
-            for a, b in zip(ivs, ivs[1:]):
-                if abs(a[1] - b[0]) > 1e-9:
+            if any_event_phase:
+                if ivs and abs(ivs[0][0] - schedule["t0"]) > 1e-9:
                     messages.append({"level": "error", "code": "err_phase_gap",
                                      "args": {}})
                     blocked = True
-            if ivs and abs(ivs[-1][1] - schedule["t1"]) > 1e-9:
-                messages.append({"level": "error", "code": "err_phase_gap",
-                                 "args": {}})
-                blocked = True
+            else:
+                if ivs and abs(ivs[0][0] - schedule["t0"]) > 1e-9:
+                    messages.append({"level": "error", "code": "err_phase_gap",
+                                     "args": {}})
+                    blocked = True
+                for a, b in zip(ivs, ivs[1:]):
+                    if abs(a[1] - b[0]) > 1e-9:
+                        messages.append({"level": "error", "code": "err_phase_gap",
+                                         "args": {}})
+                        blocked = True
+                if ivs and abs(ivs[-1][1] - schedule["t1"]) > 1e-9:
+                    messages.append({"level": "error", "code": "err_phase_gap",
+                                     "args": {}})
+                    blocked = True
         if model.task_phases and (model.distributions or model.boundaries):
             messages.append({"level": "error", "code": "err_phase_dist",
                              "args": {}})
@@ -387,14 +400,14 @@ def analyze(model: Model) -> dict:
         walk_rows(eq, 0)
     common_count = eq_count
     # phase equations: walked for display/incidence, counted per phase
-    for pname, peqs in model.task_phases.items():
-        for eq in peqs:
+    for pname, ph in model.task_phases.items():
+        for eq in ph.equations:
             scan_funcs(eq)
             walk_rows(eq, 1)
     if model.task_phases:
         first_p = next(iter(model.task_phases))
         eq_count = common_count + sum(count_leaves(e)
-                                      for e in model.task_phases[first_p])
+                                      for e in model.task_phases[first_p].equations)
 
     # indexed bases used anywhere in the equations
     indexed_bases: Set[str] = set()
@@ -428,8 +441,8 @@ def analyze(model: Model) -> dict:
 
     for eq in equations:
         scan_eq_indexed(eq)
-    for pname, peqs in model.task_phases.items():
-        for eq in peqs:
+    for pname, ph in model.task_phases.items():
+        for eq in ph.equations:
             scan_eq_indexed(eq)
 
     # ---- unknowns, states, undeclared names -----------------------------------
@@ -533,8 +546,8 @@ def analyze(model: Model) -> dict:
 
     # ---- degrees of freedom & validation -----------------------------------------
     if model.task_phases:
-        for pname, peqs in model.task_phases.items():
-            pc = sum(count_leaves(e) for e in peqs)
+        for pname, ph in model.task_phases.items():
+            pc = sum(count_leaves(e) for e in ph.equations)
             if common_count + pc != len(unknowns):
                 messages.append({"level": "error", "code": "err_phase_dof",
                                  "args": {"phase": pname, "u": len(unknowns),
@@ -647,7 +660,9 @@ def analyze(model: Model) -> dict:
                  for i, d in enumerate(model.data)
                  if data_info and i < len(data_info)],
         "phases": [{"name": p, "start": phase_intervals[p][0],
-                    "end": phase_intervals[p][1]}
+                    "end": phase_intervals[p][1],
+                    "event": (model.task_phases[p].when is not None
+                              if p in model.task_phases else False)}
                    for p in sorted(phase_intervals)],
     }
 

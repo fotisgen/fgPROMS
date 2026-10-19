@@ -1,0 +1,33 @@
+# ============================================================
+#  fgPROMS benchmark: event-driven batch (TASK with END WHEN)
+#  Phase "Heat": dT/dt = 4200/(m*cp) = 0.1 K/s until T > 350
+#                -> event at t = 50/0.1 = 500 s
+#  Phase "Cool": dT/dt = -2100/(m*cp) = -0.05 K/s until T < 340
+#                -> event at t = 500 + 10/0.05 = 700 s
+#  Analytical checks (tests):
+#    T(t=500) = 350 exactly,  T(t=700) = 340 exactly
+# ============================================================
+MODEL EventBatch
+  PARAMETER
+    m    AS REAL DEFAULT 10.0      # kg
+    cp   AS REAL DEFAULT 4200.0    # J/kg/K
+    Tset AS REAL DEFAULT 350.0     # heating target, K
+    Tcool AS REAL DEFAULT 340.0    # cooling target, K
+  VARIABLE
+    T AS REAL
+  TASK
+    PHASE Heat
+      $T = 4200 / (m * cp) ;
+    END WHEN T > Tset ;
+    PHASE Cool
+      $T = -2100 / (m * cp) ;
+    END WHEN T < Tcool ;
+  END
+  INITIAL
+    T = 300.0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 1000 WITH Heat STEP 0.05
+      CONTINUE FOR t := 1000 TO 2000 WITH Cool STEP 0.05
+    END
+END

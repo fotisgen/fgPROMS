@@ -171,3 +171,127 @@ END
     ts = r["timeSeries"]
     x_end = ts["variables"]["x"][-1]
     assert abs(x_end - 5.0) < 1e-3     # integrated $x = a = 1 over t=5
+
+
+# ---------------- M19: event-driven phases (END WHEN) ----------------
+def test_parser_end_when():
+    m = parse_model("""
+MODEL M
+  PARAMETER
+    a AS REAL DEFAULT 1.0
+  VARIABLE
+    x AS REAL
+  TASK
+    PHASE One
+      $x = a ;
+    END WHEN x > 10 ;
+  END
+  INITIAL
+    x = 0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 100 WITH One STEP 0.1
+    END
+END
+""")
+    ph = m.task_phases["one"]
+    assert ph.when is not None
+    from backend.parser.gproms_parser import BinOp
+    assert isinstance(ph.when, BinOp) and ph.when.op == ">"
+
+
+def test_event_batch_analytical(run):
+    r = run("event_batch.gPROMS", folder="benchmarks")
+    assert r["results"]["success"]
+    ts = r["timeSeries"]
+    t = ts["t"]
+    T = ts["variables"]["t"]
+
+    # heating event at t = 500 s with T = 350 exactly
+    i_peak = max(range(len(T)), key=lambda i: T[i])
+    assert abs(t[i_peak] - 500.0) < 0.2, f"heat event at {t[i_peak]}"
+    assert abs(T[i_peak] - 350.0) < 0.001
+    # cooling event at t = 700 s with T = 340
+    t_end = t[-1]
+    assert abs(t_end - 700.0) < 0.2, f"cool event at {t_end}"
+    assert abs(T[-1] - 340.0) < 0.001
+    # simulation stops far before the schedule max (2000 s)
+    assert t_end < 800.0
+
+
+def test_event_phase_ends_before_schedule_max(run):
+    r = run("event_batch.gPROMS", folder="benchmarks")
+    phases = {p["name"]: p for p in r["model"]["phases"]}
+    assert phases["heat"]["event"] is True
+    assert phases["cool"]["event"] is True
+    # the schedule "end" is the max window; the run finished earlier
+    assert r["timeSeries"]["t"][-1] < phases["cool"]["end"]
+
+
+def test_event_never_fires_runs_to_max():
+    r = run_model("""
+MODEL M
+  PARAMETER
+    a AS REAL DEFAULT 1.0
+  VARIABLE
+    x AS REAL
+  TASK
+    PHASE One
+      $x = a ;
+    END WHEN x > 1.0E9 ;
+  END
+  INITIAL
+    x = 0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 5 WITH One STEP 0.1
+    END
+END
+""")
+    assert r["results"]["success"]
+    ts = r["timeSeries"]
+    assert abs(ts["t"][-1] - 5.0) < 1e-9       # ran the full window
+    assert abs(ts["variables"]["x"][-1] - 5.0) < 1e-3
+
+
+def test_event_chains_phases_continuously():
+    """The state at the event is the initial state of the next phase —
+    temperature continuity across the switch."""
+    r = run_model("""
+MODEL M
+  PARAMETER
+    a AS REAL DEFAULT 1.0
+  VARIABLE
+    x AS REAL
+  TASK
+    PHASE Up
+      $x = a ;
+    END WHEN x > 3 ;
+    PHASE Down
+      $x = -2 * a ;
+    END WHEN x < 1 ;
+  END
+  INITIAL
+    x = 0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 100 WITH Up STEP 0.05
+      CONTINUE FOR t := 100 TO 200 WITH Down STEP 0.05
+    END
+END
+""")
+    assert r["results"]["success"]
+    ts = r["timeSeries"]
+    t = ts["t"]
+    x = ts["variables"]["x"]
+    i_peak = max(range(len(x)), key=lambda i: x[i])
+    assert abs(t[i_peak] - 3.0) < 0.05      # event at x = 3
+    assert abs(x[i_peak] - 3.0) < 0.001
+    # second phase: from 3 down to 1 at rate 2 -> 1 s of integration
+    assert abs(t[-1] - 4.0) < 0.05
+    assert abs(x[-1] - 1.0) < 0.001
+    # monotonic up then monotonic down
+    ups = x[:i_peak + 1]
+    downs = x[i_peak:]
+    assert all(ups[j + 1] > ups[j] - 1e-12 for j in range(len(ups) - 1))
+    assert all(downs[j + 1] < downs[j] + 1e-12 for j in range(len(downs) - 1))

@@ -269,6 +269,14 @@ class BoundaryEq:
 
 
 @dataclass
+class Phase:
+    name: str
+    equations: List[Equation]
+    when: Optional[Node] = None      # END WHEN condition (event phase)
+    line: int = 0
+
+
+@dataclass
 class DataDecl:
     name: str
     points: List[tuple]     # list of (time_node, value_node)
@@ -757,10 +765,17 @@ class Parser:
                 raise ParseError("Unexpected end of file inside TASK",
                                  self.peek().line, self.peek().col)
             self.expect_kw("PHASE")
-            name = self.expect_ident().value
+            name_tok = self.expect_ident()
             eqs = self.parse_eq_list()
             self.expect_kw("END")
-            phases[name.lower()] = eqs
+            cond = None
+            if self.at_kw("WHEN"):
+                self.next()
+                cond = self.parse_expr()
+            if self.at_op(";"):
+                self.next()
+            phases[name_tok.value.lower()] = Phase(name_tok.value, eqs, cond,
+                                                   name_tok.line)
         self.expect_kw("END")
         return phases
 
