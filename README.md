@@ -106,7 +106,7 @@ fgPROMS/
 
 Δύο επίπεδα ελέγχου:
 
-### Αυτοματοποιημένη σουίτα (160 έλεγχοι + 8 browser tests)
+### Αυτοματοποιημένη σουίτα (225 έλεγχοι + 8 browser tests)
 
 Διπλό κλικ στο **`test.bat`** (ή `.venv\Scripts\python -m pytest tests -v`):
 
