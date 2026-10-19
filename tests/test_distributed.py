@@ -170,3 +170,93 @@ END
     v = r["results"]["values"]
     assert abs(v["t(1)"] - 350.0) < 1e-3
     assert abs(r["results"]["objective"]["value"]) < 1e-4
+
+
+# ---------------- M21: integral operators (INT) ----------------
+def test_conduction_average_exact(run):
+    """The trapezoidal INT of a linear profile is exact."""
+    r = run("conduction_avg.gPROMS", folder="benchmarks")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    assert abs(v["tavg"] - 325.0) < 1e-9
+
+
+def test_int_matches_hand_sum():
+    """INT(T, Axial) must equal the hand-computed trapezoidal sum."""
+    r = run_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+  DISTRIBUTION
+    Axial : L : 11 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial) OF REAL
+    I AS REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+    I = INT(T, Axial) ;
+  BOUNDARY
+    T = 300 AT Axial = 0 ;
+    T = 350 AT Axial = L ;
+END
+""")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    dz = 0.1
+    hand = dz * (0.5 * 300.0
+                 + sum(300.0 + 50.0 * z for z in (0.1 * k
+                                                  for k in range(1, 10)))
+                 + 0.5 * 350.0)
+    assert abs(v["i"] - hand) < 1e-9
+    assert abs(v["i"] - 325.0) < 1e-9       # area of the linear profile
+
+
+def test_int_of_square_profile():
+    """INT(T^2, Axial) of the linear profile 300+50z: analytical integral
+    = 90000 + 15000 + 2500/3 = 105833.33... The trapezoidal rule on a
+    quadratic has a known O(dz^2) error: dz=0.01 -> ~0.042."""
+    r = run_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+  DISTRIBUTION
+    Axial : L : 101 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial) OF REAL
+    I AS REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+    I = INT(T * T, Axial) ;
+  BOUNDARY
+    T = 300 AT Axial = 0 ;
+    T = 350 AT Axial = L ;
+END
+""")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    exact = 90000.0 + 15000.0 + 2500.0 / 3.0       # 105833.333...
+    # hand-computed trapezoid (matches the solver exactly)
+    dz = 0.01
+    hand = dz * (0.5 * 300.0 ** 2
+                 + sum((300.0 + 50.0 * k * dz) ** 2 for k in range(1, 100))
+                 + 0.5 * 350.0 ** 2)
+    assert abs(v["i"] - hand) < 1e-9
+    # vs the true integral: within the trapezoid's O(dz^2) error
+    assert abs(v["i"] - exact) < 0.05
+
+
+def test_int_without_distribution_errors():
+    r = run_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+  VARIABLE
+    x AS REAL
+    I AS REAL
+  EQUATION
+    x = 1 ;
+    I = INT(x, Axial) ;
+END
+""")
+    assert r["results"] is None
+    assert has_msg(r, "err_int_domain", "error")

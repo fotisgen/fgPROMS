@@ -170,12 +170,66 @@ def _resolve_boundary_point(at_expr, domain: DomainInfo, env) -> Optional[int]:
     return None
 
 
+def _expand_int(node, domains: Dict[str, DomainInfo],
+                dist_vars: Set[str]) -> Node:
+    """Replace INT(expr, domain) with a trapezoidal sum over the domain
+    grid:  dz * (0.5*e1 + e2 + ... + e_{N-1} + 0.5*eN)."""
+    if isinstance(node, Func) and node.name == "INT" and len(node.args) == 2:
+        expr = node.args[0]
+        dom_arg = node.args[1]
+        if not isinstance(dom_arg, Var):
+            raise ValueError("INT requires a domain name")
+        dom = domains.get(dom_arg.name.lower())
+        if dom is None:
+            raise ValueError(f"undeclared distribution domain {dom_arg.name}")
+        terms = []
+        for k in range(1, dom.points + 1):
+            ek = _expand_at(expr, k, dom, dist_vars, None)
+            if k == 1 or k == dom.points:
+                terms.append(BinOp("*", _num(0.5), ek))
+            else:
+                terms.append(ek)
+        total = terms[0]
+        for t in terms[1:]:
+            total = BinOp("+", total, t)
+        return BinOp("*", _num(dom.dz), total)
+    if isinstance(node, UnOp):
+        return UnOp(node.op, _expand_int(node.x, domains, dist_vars))
+    if isinstance(node, BinOp):
+        return BinOp(node.op, _expand_int(node.l, domains, dist_vars),
+                     _expand_int(node.r, domains, dist_vars))
+    if isinstance(node, Func):
+        return Func(node.name, [_expand_int(a, domains, dist_vars)
+                                for a in node.args])
+    if isinstance(node, IfExpr):
+        return IfExpr(_expand_int(node.cond, domains, dist_vars),
+                      _expand_int(node.then, domains, dist_vars),
+                      _expand_int(node.els, domains, dist_vars))
+    if isinstance(node, Indexed):
+        return Indexed(node.name, [_expand_int(i, domains, dist_vars)
+                                   for i in node.indices])
+    return node
+
+
+def _expand_int_eq(eq, domains, dist_vars) -> Equation:
+    if isinstance(eq, EqEquation):
+        return EqEquation(_expand_int(eq.lhs, domains, dist_vars),
+                          _expand_int(eq.rhs, domains, dist_vars), eq.op)
+    return IfEquation(_expand_int(eq.cond, domains, dist_vars),
+                      [_expand_int_eq(e, domains, dist_vars)
+                       for e in eq.then_eqs],
+                      [_expand_int_eq(e, domains, dist_vars)
+                       for e in eq.else_eqs])
+
+
 def expand_equations(model: Model, domains: Dict[str, DomainInfo],
                      dist_vars: Dict[str, str], env) -> List[Equation]:
     """Expand EQUATION and BOUNDARY sections into concrete per-point
-    equations. Equations without distributed references pass through."""
+    equations. INT(..., domain) nodes become trapezoidal sums first;
+    equations without distributed references pass through."""
     out: List[Equation] = []
     for eq in model.equations:
+        eq = _expand_int_eq(eq, domains, set(dist_vars))
         if not _eq_contains(eq, set(dist_vars)):
             out.append(eq)
             continue

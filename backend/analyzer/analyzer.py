@@ -562,11 +562,16 @@ def analyze(model: Model) -> dict:
         blocked = True
 
     unsupported = sorted(f for f in funcs_used
-                         if f not in SUPPORTED_FUNCS and f not in PROP_FUNCS)
+                         if f not in SUPPORTED_FUNCS and f not in PROP_FUNCS
+                         and f != "INT")
     for f in unsupported:
         messages.append({"level": "error", "code": "err_unsupported_func",
                          "args": {"name": f}})
     if unsupported:
+        blocked = True
+    if "INT" in funcs_used:
+        messages.append({"level": "error", "code": "err_int_domain",
+                         "args": {}})
         blocked = True
 
     # indexed access on a name that is not a declared ARRAY

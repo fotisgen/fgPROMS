@@ -51,7 +51,7 @@ RESERVED = SECTION_KEYWORDS | {
     "CONTINUE", "FOR", "TO", "STEP", "SEQUENCE", "AS", "REAL", "INTEGER",
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN",
     "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
-    "WITH", "PHASE", "MATERIAL",
+    "WITH", "PHASE", "MATERIAL", "FROM", "FILE",
 }
 
 
@@ -281,6 +281,7 @@ class DataDecl:
     name: str
     points: List[tuple]     # list of (time_node, value_node)
     line: int
+    file: Optional[str] = None   # 'data.csv' when imported via FROM FILE
 
 
 @dataclass
@@ -885,6 +886,20 @@ class Parser:
         while (self.peek().kind == "IDENT"
                and self.peek().value.upper() not in RESERVED):
             name_tok = self.next()
+            # CSV import:  DATA CA FROM FILE('data.csv') ;
+            if self.at_kw("FROM"):
+                self.next()
+                self.expect_kw("FILE")
+                self.expect_op("(")
+                t = self.peek()
+                fname = ""
+                if t.kind == "STRING":
+                    fname = self.next().value
+                self.expect_op(")")
+                if self.at_op(";"):
+                    self.next()
+                data.append(DataDecl(name_tok.value, [], name_tok.line, fname))
+                continue
             self.expect_op(":")
             points: List[tuple] = []
             while True:

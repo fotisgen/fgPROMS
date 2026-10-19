@@ -9,9 +9,9 @@ CodeMirror.defineMode("gproms", function () {
     "DATA", "ESTIMATE", "TASK", "PHASE", "WITH",
   ];
   const FUNC = ["EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN",
-                "SIGN", "MAX", "MIN", "SIGMA", "PARTIAL", "CP", "CV", "RHO",
-                "H", "S", "VISC", "TC", "PC", "M", "U", "G", "Q", "TBUBBLE",
-                "TDEW", "PBUBBLE", "PDEW"];
+                "SIGN", "MAX", "MIN", "SIGMA", "PARTIAL", "INT", "CP", "CV",
+                "RHO", "H", "S", "VISC", "TC", "PC", "M", "U", "G", "Q",
+                "TBUBBLE", "TDEW", "PBUBBLE", "PDEW"];
   return {
     token: function (stream) {
       if (stream.eatSpace()) return null;

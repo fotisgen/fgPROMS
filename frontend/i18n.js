@@ -224,6 +224,7 @@ const MSG = {
     err_phase_gap: "Οι φάσεις στο SCHEDULE δεν καλύπτουν συνεχώς όλο το χρονικό εύρος.",
     warn_phase_unused: "Η φάση «{phase}» του TASK δεν χρησιμοποιείται στο SCHEDULE.",
     err_phase_dist: "Ο συνδυασμός TASK φάσεων με DISTRIBUTION δεν υποστηρίζεται ακόμη.",
+    err_int_domain: "Ο τελεστής INT χρειάζεται κατανεμημένο τομέα (DISTRIBUTION). Π.χ.: INT(T, Axial).",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -283,5 +284,6 @@ const MSG = {
     err_phase_gap: "The phases in SCHEDULE do not cover the whole time horizon continuously.",
     warn_phase_unused: "TASK phase “{phase}” is not used in the SCHEDULE.",
     err_phase_dist: "Combining TASK phases with DISTRIBUTION is not yet supported.",
+    err_int_domain: "The INT operator needs a distribution domain (DISTRIBUTION). E.g.: INT(T, Axial).",
   },
 };

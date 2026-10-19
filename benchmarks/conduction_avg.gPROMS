@@ -1,0 +1,23 @@
+# ============================================================
+#  fgPROMS benchmark: average temperature of a conduction profile
+#  d2T/dz2 = 0 with T(0)=300, T(L)=350 -> linear profile
+#  INT(T, Axial) = trapezoidal integral = EXACT for a linear
+#  profile: Tavg = (300+350)/2 = 325
+# ============================================================
+MODEL ConductionAvg
+  PARAMETER
+    L  AS REAL DEFAULT 1.0
+    T0 AS REAL DEFAULT 300.0
+    TL AS REAL DEFAULT 350.0
+  DISTRIBUTION
+    Axial : L : 11 ;
+  VARIABLE
+    T    AS DISTRIBUTION(Axial) OF REAL
+    Tavg AS REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+    Tavg = INT(T, Axial) / L ;
+  BOUNDARY
+    T = T0 AT Axial = 0 ;
+    T = TL AT Axial = L ;
+END
