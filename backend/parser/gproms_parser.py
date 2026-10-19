@@ -51,7 +51,7 @@ RESERVED = SECTION_KEYWORDS | {
     "CONTINUE", "FOR", "TO", "STEP", "SEQUENCE", "AS", "REAL", "INTEGER",
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN",
     "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
-    "WITH", "PHASE",
+    "WITH", "PHASE", "MATERIAL",
 }
 
 
@@ -292,6 +292,13 @@ class UnitDecl:
 
 
 @dataclass
+class StreamDecl:
+    name: str
+    fluid: str
+    line: int
+
+
+@dataclass
 class ProcessDef:
     name: str
     line: int
@@ -300,6 +307,7 @@ class ProcessDef:
     sets: List[Assignment] = field(default_factory=list)
     initial: List[Assignment] = field(default_factory=list)
     schedule: List[ScheduleStep] = field(default_factory=list)
+    streams: List[StreamDecl] = field(default_factory=list)
 
 
 @dataclass
@@ -340,7 +348,7 @@ _SYM = {"**": "^"}
 # function names (math + properties) — anything else followed by '(' is an
 # indexed array access like z(1)
 FUNC_NAMES = {"EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN", "SIGN",
-              "MAX", "MIN", "SIGMA", "PARTIAL",
+              "MAX", "MIN", "SIGMA", "PARTIAL", "INT",
               "CP", "CV", "RHO", "H", "S", "VISC", "TC", "PC", "M",
               "U", "G", "Q", "TBUBBLE", "TDEW", "PBUBBLE", "PDEW"}
 
@@ -563,6 +571,9 @@ class Parser:
                 if u == "UNIT":
                     self.next()
                     p.units = self.parse_units()
+                elif u == "STREAM":
+                    self.next()
+                    p.streams = self.parse_streams()
                 elif u == "EQUATION":
                     self.next()
                     p.equations = self.parse_eq_list()
@@ -615,6 +626,25 @@ class Parser:
             units.append(UnitDecl(name_tok.value, type_tok.value, sets,
                                   name_tok.line))
         return units
+
+    def parse_streams(self) -> List[StreamDecl]:
+        streams: List[StreamDecl] = []
+        while (self.peek().kind == "IDENT"
+               and self.peek().value.upper() not in RESERVED):
+            name_tok = self.next()
+            self.expect_kw("AS")
+            self.expect_kw("MATERIAL")
+            fluid = ""
+            if self.at_op("("):
+                self.next()
+                t = self.peek()
+                if t.kind == "STRING":
+                    fluid = self.next().value
+                self.expect_op(")")
+            if self.at_op(";"):
+                self.next()
+            streams.append(StreamDecl(name_tok.value, fluid, name_tok.line))
+        return streams
 
     # -- declarations --------------------------------------------------------
     def parse_decls(self) -> List[Decl]:

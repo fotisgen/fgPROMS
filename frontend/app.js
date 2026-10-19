@@ -355,6 +355,13 @@ function renderModelTab(d) {
       html += `<tr><td>${esc(u.name)}</td><td class="muted">${esc(u.type)}</td></tr>`;
     html += "</tbody></table>";
   }
+  if (m.isProcess && m.streams && m.streams.length) {
+    html += `<h3>${t("streamsTitle")} (${m.streams.length})</h3>
+      <table class="grid"><thead><tr><th>${t("name")}</th><th>${t("fluid")}</th></tr></thead><tbody>`;
+    for (const s of m.streams)
+      html += `<tr><td>${esc(s.name)}</td><td class="muted">${esc(s.fluid)}</td></tr>`;
+    html += "</tbody></table>";
+  }
 
   html += `<h3>${t("parameters")}</h3>
   <table class="grid"><thead><tr><th>${t("name")}</th><th>${t("type")}</th><th>${t("defaultValue")}</th><th>${t("value")}</th></tr></thead><tbody>`;

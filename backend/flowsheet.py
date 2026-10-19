@@ -18,6 +18,7 @@ from .parser.gproms_parser import (
     Model, ProcessDef, Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr, Indexed,
     EqEquation, IfEquation, expr_str,
 )
+from .properties import COOLPROP_AVAILABLE
 from .solver.solver import make_eval
 
 import re  # noqa: E402
@@ -238,6 +239,31 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
         for eq in m.equations:
             combined.append(_rewrite_eq(eq, prefix))
 
+    # ---- material streams: variables + implicit property equations ---------
+    stream_info = []
+    if process.streams and not COOLPROP_AVAILABLE:
+        messages.append({"level": "error", "code": "err_coolprop_missing",
+                         "args": {"name": "H"}})
+        blocked = True
+    for st in process.streams:
+        key = st.name.lower()
+        stream_info.append({"name": st.name, "fluid": st.fluid or "Water"})
+        for prop, g in (("F", 1.0), ("T", 300.0), ("P", 1.0E5)):
+            full = f"{key}.{prop.lower()}"
+            display[full] = f"{st.name}.{prop}"
+            unknowns.append(full)
+            guesses[full] = g
+        fluid = st.fluid or "Water"
+        for prop, fn in (("H", "H"), ("CP", "CP"), ("RHO", "RHO")):
+            full = f"{key}.{prop.lower()}"
+            display[full] = f"{st.name}.{prop}"
+            unknowns.append(full)
+            guesses[full] = 0.0
+            lhs = Var(f"{st.name}.{prop}")
+            rhs = Func(fn, [Str(fluid), Var(f"{st.name}.T"),
+                            Var(f"{st.name}.P")])
+            combined.append(EqEquation(lhs, rhs, "="))
+
     for eq in process.equations:
         combined.append(eq)
 
@@ -385,6 +411,7 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
         "line": process.line,
         "isProcess": True,
         "units": [{"name": disp, "type": m.name} for _, disp, m, _ in units_ok],
+        "streams": stream_info,
         "parameters": params_json,
         "variables": vars_json,
         "equations": rows,

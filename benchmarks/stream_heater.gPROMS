@@ -1,0 +1,35 @@
+# ============================================================
+#  fgPROMS benchmark: stream-based water heater (flowsheet)
+#  Two material streams with CoolProp properties:
+#    S1: water at 300 K, 1 bar   -> H ~ 112.5 kJ/kg
+#    S2: water at 350 K, 1 bar   -> H ~ 321.9 kJ/kg
+#  Heater duty: Q = S2.H - S1.H ~ 209.4 kJ/kg
+#  Verified in the tests against direct CoolProp calls.
+# ============================================================
+MODEL HeaterUnit
+  VARIABLE
+    F    AS REAL
+    Qin  AS REAL
+    Qout AS REAL
+    Q    AS REAL
+  EQUATION
+    Q = Qout - Qin ;
+END
+
+PROCESS WaterHeater
+  UNIT
+    H1 AS HeaterUnit
+  STREAM
+    S1 AS MATERIAL('Water')
+    S2 AS MATERIAL('Water')
+  EQUATION
+    S1.F = 1.0 ;
+    S1.T = 300.0 ;
+    S1.P = 1.0E5 ;
+    S2.F = 1.0 ;
+    S2.T = 350.0 ;
+    S2.P = 1.0E5 ;
+    H1.Qin  = S1.H ;
+    H1.Qout = S2.H ;
+    H1.F = S1.F ;
+END
