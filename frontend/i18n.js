@@ -191,6 +191,10 @@ const MSG = {
     warn_process_set_ignored: "Το SET «{name}» του PROCESS αγνοήθηκε (άγνωστο στοιχείο).",
     info_flowsheet_summary: "Flowsheet «{name}»: {nu} μονάδες, {nv} μεταβλητές, {ne} εξισώσεις.",
     err_not_array: "Το «{name}» χρησιμοποιείται με δείκτη, αλλά δεν έχει δηλωθεί ως ARRAY. Μήπως εννοούσες κάποια συνάρτηση;",
+    err_bad_distribution: "Μη έγκυρη δήλωση DISTRIBUTION «{name}» (χρειάζεται έκταση > 0 και σημεία ≥ 3).",
+    err_dist_param: "Κατανεμημένες παράμετροι (DISTRIBUTION σε PARAMETER) δεν υποστηρίζονται ακόμη.",
+    err_dist_domain: "Η μεταβλητή «{name}» αναφέρεται σε μη δηλωμένο τομέα «{domain}».",
+    err_dist_expand: "Σφάλμα επέκτασης κατανεμημένου συστήματος: {detail}",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -233,5 +237,9 @@ const MSG = {
     warn_process_set_ignored: "PROCESS SET “{name}” was ignored (unknown element).",
     info_flowsheet_summary: "Flowsheet “{name}”: {nu} units, {nv} variables, {ne} equations.",
     err_not_array: "“{name}” is used with an index but is not declared as an ARRAY. Did you mean a function?",
+    err_bad_distribution: "Invalid DISTRIBUTION declaration “{name}” (needs extent > 0 and at least 3 points).",
+    err_dist_param: "Distributed parameters (DISTRIBUTION in PARAMETER) are not yet supported.",
+    err_dist_domain: "Variable “{name}” refers to an undeclared domain “{domain}”.",
+    err_dist_expand: "Distributed system expansion error: {detail}",
   },
 };

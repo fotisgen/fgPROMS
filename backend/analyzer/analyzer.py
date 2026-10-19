@@ -18,6 +18,7 @@ from ..parser.gproms_parser import (
 )
 from ..properties import PROP_FUNCS, COOLPROP_AVAILABLE
 from ..solver.solver import make_eval, SUPPORTED_FUNCS
+from ..distributed import DomainInfo, expand_equations
 
 
 def _collect(node, vars_out: Set[str], derivs_out: Set[str]) -> None:
@@ -104,8 +105,10 @@ def analyze(model: Model) -> dict:
     # ---- declarations ------------------------------------------------------
     params: List[dict] = []
     variables: List[dict] = []
+    dist_decls: List[dict] = []
     seen: Set[str] = set()
     array_sizes: Dict[str, int] = {}
+    base_map: Dict[str, str] = {}
 
     for d in model.parameters:
         for nm in d.names:
@@ -120,10 +123,19 @@ def analyze(model: Model) -> dict:
                                      "args": {"name": exp}})
                     continue
                 seen.add(key)
-                params.append({"name": exp, "lower": key, "type": d.type_text,
+                params.append({"name": exp, "lower": key, "base": nm.lower(),
+                               "type": d.type_text,
                                "default_node": d.default, "line": d.line})
     for d in model.variables:
+        m_dist = re.match(r"DISTRIBUTION\s*\(\s*(\w+)\s*\)", d.type_text or "",
+                          re.IGNORECASE)
         for nm in d.names:
+            if m_dist:
+                dist_decls.append({"name": nm, "lower": nm.lower(),
+                                   "type": d.type_text,
+                                   "default_node": d.default, "line": d.line,
+                                   "domain": m_dist.group(1).lower()})
+                continue
             m_arr = re.match(r"ARRAY\s*\(\s*(\d+)\s*\)", d.type_text or "",
                              re.IGNORECASE)
             if m_arr:
@@ -135,7 +147,8 @@ def analyze(model: Model) -> dict:
                                      "args": {"name": exp}})
                     continue
                 seen.add(key)
-                variables.append({"name": exp, "lower": key, "type": d.type_text,
+                variables.append({"name": exp, "lower": key,
+                                  "base": nm.lower(), "type": d.type_text,
                                   "default_node": d.default, "line": d.line})
 
     # ---- parameter values (evaluated in declaration order) ------------------
@@ -160,6 +173,56 @@ def analyze(model: Model) -> dict:
         env[key] = val
         fixed.add(key)
 
+    # ---- distribution domains ---------------------------------------------
+    domains: Dict[str, DomainInfo] = {}
+    if model.distributions:
+        for d in model.distributions:
+            ext = _eval_const(d.extent, env)
+            n = _eval_const(d.points, env)
+            key = d.name.lower()
+            if (ext is None or n is None or n < 3 or int(n) != n
+                    or ext <= 0):
+                messages.append({"level": "error",
+                                 "code": "err_bad_distribution",
+                                 "args": {"name": d.name}})
+                blocked = True
+                continue
+            domains[key] = DomainInfo(d.name, float(ext), int(n),
+                                      float(ext) / (int(n) - 1.0))
+    if any(re.match(r"DISTRIBUTION", d.type_text or "", re.IGNORECASE)
+           for d in model.parameters):
+        messages.append({"level": "error", "code": "err_dist_param",
+                         "args": {}})
+        blocked = True
+
+    # ---- expand distributed variables into point-wise unknowns -------------
+    dist_vars: Dict[str, str] = {dv["lower"]: dv["domain"] for dv in dist_decls}
+    if dist_decls:
+        new_vars: List[dict] = []
+        for dv in dist_decls:
+            dom = domains.get(dv["domain"])
+            if dom is None:
+                messages.append({"level": "error", "code": "err_dist_domain",
+                                 "args": {"name": dv["name"],
+                                          "domain": dv["domain"]}})
+                blocked = True
+                continue
+            array_sizes[dv["lower"]] = dom.points
+            for k in range(1, dom.points + 1):
+                key = f"{dv['lower']}({k})"
+                if key in seen:
+                    messages.append({"level": "warn", "code": "warn_duplicate",
+                                     "args": {"name": key}})
+                    continue
+                seen.add(key)
+                new_vars.append({"name": f"{dv['name']}({k})", "lower": key,
+                                 "base": dv["lower"], "type": dv["type"],
+                                 "default_node": dv["default_node"],
+                                 "line": dv["line"]})
+        variables = variables + new_vars
+    for v in variables:
+        base_map[v["lower"]] = v["base"]
+
     # ---- schedule ------------------------------------------------------------
     schedule = None
     if model.schedule:
@@ -175,6 +238,19 @@ def analyze(model: Model) -> dict:
                         "step": float(h)}
 
     # ---- equations: display rows, incidence, leaf ids -------------------------
+    # distributed equations expand per interior point (method of lines)
+    if model.distributions or model.boundaries or dist_decls:
+        try:
+            equations = expand_equations(model, domains, dist_vars, env)
+        except ValueError as e:
+            messages.append({"level": "error", "code": "err_dist_expand",
+                             "args": {"detail": str(e)}})
+            blocked = True
+            equations = model.equations
+    else:
+        equations = model.equations
+    # the solver and everything downstream must see the EXPANDED system
+    model.equations = equations
     rows: List[dict] = []
     leaf_counter = [0]
     derivs_used: Set[str] = set()
@@ -239,7 +315,7 @@ def analyze(model: Model) -> dict:
             for e in eq.else_eqs:
                 walk_rows(e, indent + 1)
 
-    for eq in model.equations:
+    for eq in equations:
         scan_funcs(eq)
         eq_count += count_leaves(eq)
         walk_rows(eq, 0)
@@ -273,7 +349,7 @@ def analyze(model: Model) -> dict:
             for e in eq.then_eqs + eq.else_eqs:
                 scan_eq_indexed(e)
 
-    for eq in model.equations:
+    for eq in equations:
         scan_eq_indexed(eq)
 
     # ---- unknowns, states, undeclared names -----------------------------------
@@ -307,6 +383,8 @@ def analyze(model: Model) -> dict:
         key = v["lower"]
         if key in guesses:
             initial_guess[key] = guesses[key]
+        elif v["base"] in guesses:
+            initial_guess[key] = guesses[v["base"]]
         else:
             gv = _eval_const(v["default_node"], env)
             initial_guess[key] = gv if gv is not None else 0.0
@@ -333,7 +411,7 @@ def analyze(model: Model) -> dict:
     is_optimization = objective is not None
     blocked = False
 
-    if not model.equations:
+    if not equations:
         messages.append({"level": "error", "code": "err_no_equations", "args": {}})
         blocked = True
 
@@ -388,7 +466,7 @@ def analyze(model: Model) -> dict:
         blocked = True
     if is_dynamic and schedule:
         for s in states:
-            if s not in has_initial:
+            if s not in has_initial and base_map.get(s, s) not in has_initial:
                 messages.append({"level": "error", "code": "err_state_no_initial",
                                  "args": {"name": s}})
                 blocked = True
@@ -425,6 +503,10 @@ def analyze(model: Model) -> dict:
         "bounds": [{"name": b.name, "lo": bounds_info.get(b.name.lower(), (None, None))[0],
                     "hi": bounds_info.get(b.name.lower(), (None, None))[1]}
                    for b in model.bounds],
+        "distributed": [{"name": dv["name"], "domain": dv["domain"],
+                         "points": domains[dv["domain"]].points,
+                         "extent": domains[dv["domain"]].extent}
+                        for dv in dist_decls if dv["domain"] in domains],
     }
 
     return {

@@ -5,12 +5,12 @@ CodeMirror.defineMode("gproms", function () {
     "SET", "DEFAULT", "IF", "THEN", "ELSE", "CASE", "SWITCH", "CONTINUE",
     "FOR", "TO", "STEP", "SEQUENCE", "AS", "TRUE", "FALSE", "AND", "OR",
     "NOT", "REAL", "INTEGER", "LOGICAL", "OPTIMIZE", "MAXIMIZE", "MINIMIZE",
-    "BOUNDS", "PROCESS", "UNIT",
+    "BOUNDS", "PROCESS", "UNIT", "DISTRIBUTION", "BOUNDARY", "AT",
   ];
   const FUNC = ["EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN",
-                "SIGN", "MAX", "MIN", "SIGMA", "CP", "CV", "RHO", "H", "S",
-                "VISC", "TC", "PC", "M", "U", "G", "Q", "TBUBBLE", "TDEW",
-                "PBUBBLE", "PDEW"];
+                "SIGN", "MAX", "MIN", "SIGMA", "PARTIAL", "CP", "CV", "RHO",
+                "H", "S", "VISC", "TC", "PC", "M", "U", "G", "Q", "TBUBBLE",
+                "TDEW", "PBUBBLE", "PDEW"];
   return {
     token: function (stream) {
       if (stream.eatSpace()) return null;

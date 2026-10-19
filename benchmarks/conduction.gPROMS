@@ -1,0 +1,21 @@
+# ============================================================
+#  fgPROMS benchmark: steady heat conduction (distributed)
+#  d2T/dz2 = 0  with  T(0)=300,  T(L)=350
+#  Analytical solution: linear profile T(z) = 300 + 50*z/L.
+#  Central differences reproduce it EXACTLY at every point.
+# ============================================================
+MODEL Conduction
+  PARAMETER
+    L  AS REAL DEFAULT 1.0      # length, m
+    T0 AS REAL DEFAULT 300.0    # K
+    TL AS REAL DEFAULT 350.0    # K
+  DISTRIBUTION
+    Axial : L : 11 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial) OF REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+  BOUNDARY
+    T = T0 AT Axial = 0 ;
+    T = TL AT Axial = L ;
+END

@@ -1,0 +1,172 @@
+"""Distributed (1D PDE) system tests — M15."""
+import math
+
+import pytest
+
+from backend.engine import run_model
+from backend.parser.gproms_parser import parse_model, Func
+from conftest import has_msg
+
+
+def test_partial_parses_as_function():
+    m = parse_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+  DISTRIBUTION
+    Axial : L : 11 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial) OF REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+  BOUNDARY
+    T = 0 AT Axial = 0 ;
+    T = 1 AT Axial = L ;
+END
+""")
+    lhs = m.equations[0].lhs
+    assert isinstance(lhs, Func) and lhs.name == "PARTIAL"
+    assert len(m.boundaries) == 2
+    assert m.boundaries[0].at_domain == "Axial"
+
+
+def test_conduction_linear_profile(run):
+    """Central differences reproduce a linear profile exactly."""
+    r = run("conduction.gPROMS", folder="benchmarks")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    # T(k) at z = (k-1)/10 should be 300 + 50*(k-1)/10
+    for k in range(1, 12):
+        key = f"t({k})"
+        z = (k - 1) / 10.0
+        assert abs(v[key] - (300.0 + 50.0 * z)) < 1e-8, \
+            f"point {k}: {v[key]} vs {300 + 50*z}"
+
+
+def test_conduction_model_json(run):
+    r = run("conduction.gPROMS", folder="benchmarks")
+    m = r["model"]
+    assert m["distributed"][0]["name"] == "T"
+    assert m["distributed"][0]["points"] == 11
+    # 9 interior + 2 boundary equations, 11 unknowns
+    assert m["dof"] == {"unknowns": 11, "equations": 11, "dof": 0}
+    assert {v["name"] for v in m["variables"]} == {f"T({k})" for k in range(1, 12)}
+
+
+def test_diffusion_dynamic_vs_fourier_mode(run):
+    """Late-time temperature matches the fundamental Fourier mode."""
+    r = run("diffusion_dynamic.gPROMS", folder="benchmarks")
+    assert r["results"]["success"]
+    ts = r["timeSeries"]
+    L, alpha = 1.0, 0.1
+    t_end = ts["t"][-1]
+    # leading mode: (400/pi) sin(pi z / L) exp(-alpha pi^2 t / L^2)
+    decay = math.exp(-alpha * math.pi ** 2 * t_end / L ** 2)
+    # middle point (k=11, z=0.5)
+    t_mid = ts["variables"]["t(11)"][-1]
+    expected = (400.0 / math.pi) * math.sin(math.pi * 0.5) * decay
+    rel = abs(t_mid - expected) / abs(expected)
+    assert rel < 0.02, f"middle point rel error {rel:.3%}"
+    # symmetry: t(6) ~ t(16)
+    t6 = ts["variables"]["t(6)"][-1]
+    t16 = ts["variables"]["t(16)"][-1]
+    assert abs(t6 - t16) < 1e-4 * abs(t6) + 1e-8
+    # boundaries stay at zero
+    assert abs(ts["variables"]["t(1)"][-1]) < 1e-9
+    assert abs(ts["variables"]["t(21)"][-1]) < 1e-9
+
+
+def test_diffusion_energy_decays(run):
+    """Total energy decreases monotonically (pure diffusion to cold walls)."""
+    r = run("diffusion_dynamic.gPROMS", folder="benchmarks")
+    ts = r["timeSeries"]
+    t = ts["t"]
+    n = len(t)
+    energy = []
+    for i in range(n):
+        energy.append(sum(ts["variables"][f"t({k})"][i] for k in range(1, 22)))
+    assert all(energy[j + 1] < energy[j] + 1e-12 for j in range(n - 1))
+
+
+def test_missing_domain_errors():
+    r = run_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+  VARIABLE
+    T AS DISTRIBUTION(Axial) OF REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+  BOUNDARY
+    T = 0 AT Axial = 0 ;
+END
+""")
+    assert r["results"] is None
+    assert has_msg(r, "err_dist_domain", "error")
+
+
+def test_boundary_without_at_errors():
+    r = run_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+  DISTRIBUTION
+    Axial : L : 11 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial) OF REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+  BOUNDARY
+    T = 0 ;
+END
+""")
+    assert r["results"] is None
+    assert has_msg(r, "err_dist_expand", "error")
+
+
+def test_bad_distribution_declaration_errors():
+    r = run_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+  DISTRIBUTION
+    Axial : L : 2 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial) OF REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+END
+""")
+    assert has_msg(r, "err_bad_distribution", "error")
+    assert r["results"] is None
+
+
+def test_distributed_optimization_boundary_control():
+    """A distributed problem can also be optimised: minimise the quadratic
+    deviation of the profile from a target with T(0) free in [0, 400].
+    Analytical: with d2T/dz2 = 0 and T(L)=350 fixed, the profile is linear,
+    so the minimum of sum (T(k)-350)^2 occurs when the whole profile is 350,
+    i.e. T(0) -> 350."""
+    r = run_model("""
+MODEL M
+  PARAMETER
+    L AS REAL DEFAULT 1.0
+    TL AS REAL DEFAULT 350.0
+  DISTRIBUTION
+    Axial : L : 11 ;
+  VARIABLE
+    T AS DISTRIBUTION(Axial) OF REAL
+  EQUATION
+    PARTIAL(T, Axial, Axial) = 0 ;
+  BOUNDARY
+    T = TL AT Axial = L ;
+  BOUNDS
+    T(1) : 0 : 400 ;
+  OPTIMIZE
+    MINIMIZE SIGMA((T(i) - TL)^2, i, 1, 11) ;
+END
+""")
+    assert r["results"]["success"]
+    v = r["results"]["values"]
+    assert abs(v["t(1)"] - 350.0) < 1e-3
+    assert abs(r["results"]["objective"]["value"]) < 1e-4

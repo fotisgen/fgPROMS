@@ -40,7 +40,7 @@ class Token:
 
 SECTION_KEYWORDS = {
     "PARAMETER", "VARIABLE", "EQUATION", "INITIAL", "SCHEDULE", "SET",
-    "OPTIMIZE", "BOUNDS",
+    "OPTIMIZE", "BOUNDS", "DISTRIBUTION", "BOUNDARY",
     "SELECTOR", "DISTRIBUTION_DOMAIN", "UNIT", "PROCESS", "STREAM",
     "SOLUTIONPARAMETER",
 }
@@ -49,7 +49,7 @@ RESERVED = SECTION_KEYWORDS | {
     "MODEL", "END", "DEFAULT", "IF", "THEN", "ELSE", "CASE", "SWITCH", "WHEN",
     "CONTINUE", "FOR", "TO", "STEP", "SEQUENCE", "AS", "REAL", "INTEGER",
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN",
-    "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE",
+    "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
 }
 
 
@@ -250,6 +250,22 @@ class Bound:
 
 
 @dataclass
+class DistributionDecl:
+    name: str
+    extent: Node
+    points: Node
+    line: int
+
+
+@dataclass
+class BoundaryEq:
+    eq: Equation
+    at_domain: str          # '' when the AT clause is missing
+    at_expr: Optional[Node]
+    line: int
+
+
+@dataclass
 class UnitDecl:
     name: str
     type_name: str
@@ -286,6 +302,8 @@ class Model:
     schedule: List[ScheduleStep] = field(default_factory=list)
     objective: Optional[Objective] = None
     bounds: List[Bound] = field(default_factory=list)
+    distributions: List[DistributionDecl] = field(default_factory=list)
+    boundaries: List[BoundaryEq] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
@@ -301,7 +319,7 @@ _SYM = {"**": "^"}
 # function names (math + properties) — anything else followed by '(' is an
 # indexed array access like z(1)
 FUNC_NAMES = {"EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN", "SIGN",
-              "MAX", "MIN", "SIGMA",
+              "MAX", "MIN", "SIGMA", "PARTIAL",
               "CP", "CV", "RHO", "H", "S", "VISC", "TC", "PC", "M",
               "U", "G", "Q", "TBUBBLE", "TDEW", "PBUBBLE", "PDEW"}
 
@@ -478,6 +496,12 @@ class Parser:
                 elif u == "BOUNDS":
                     self.next()
                     model.bounds = self.parse_bounds()
+                elif u == "DISTRIBUTION":
+                    self.next()
+                    model.distributions = self.parse_distributions()
+                elif u == "BOUNDARY":
+                    self.next()
+                    model.boundaries = self.parse_boundaries()
                 elif u in SECTION_KEYWORDS:
                     raise ParseError(
                         f"Section '{u}' is not supported by fgPROMS (Phase 1)",
@@ -585,11 +609,16 @@ class Parser:
                     break
                 if t.kind == "IDENT":
                     u = t.value.upper()
+                    p1 = self.peek(1)
                     if u == "DEFAULT":
                         break
+                    # DISTRIBUTION(Axial) is a type constructor, not the
+                    # DISTRIBUTION section keyword
+                    if u == "DISTRIBUTION" and p1.kind == "OP" and p1.value == "(":
+                        type_toks.append(self.next())
+                        continue
                     if u in SECTION_KEYWORDS or u == "END":
                         break
-                    p1 = self.peek(1)
                     if p1.kind == "IDENT" and p1.value.upper() == "AS":
                         break
                 type_toks.append(self.next())
@@ -707,14 +736,51 @@ class Parser:
         while (self.peek().kind == "IDENT"
                and self.peek().value.upper() not in RESERVED):
             name_tok = self.next()
+            name = name_tok.value
+            if self.at_op("("):
+                self.next()
+                idx = self.parse_expr()
+                self.expect_op(")")
+                name += f"({expr_str(idx)})"
             self.expect_op(":")
             lo = self.parse_expr()
             self.expect_op(":")
             hi = self.parse_expr()
             if self.at_op(";"):
                 self.next()
-            bounds.append(Bound(name_tok.value, lo, hi, name_tok.line))
+            bounds.append(Bound(name, lo, hi, name_tok.line))
         return bounds
+
+    # -- distributed systems (1D method of lines) ------------------------------
+    def parse_distributions(self) -> List[DistributionDecl]:
+        dists: List[DistributionDecl] = []
+        while (self.peek().kind == "IDENT"
+               and self.peek().value.upper() not in RESERVED):
+            name_tok = self.next()
+            self.expect_op(":")
+            extent = self.parse_expr()
+            self.expect_op(":")
+            points = self.parse_expr()
+            if self.at_op(";"):
+                self.next()
+            dists.append(DistributionDecl(name_tok.value, extent, points,
+                                          name_tok.line))
+        return dists
+
+    def parse_boundaries(self) -> List[BoundaryEq]:
+        bcs: List[BoundaryEq] = []
+        while not self.at_boundary():
+            eq = self.parse_equation()
+            at_domain = ""
+            at_expr = None
+            if self.at_kw("AT"):
+                self.next()
+                at_domain = self.expect_ident().value
+                self.expect_op("=")
+                at_expr = self.parse_expr()
+            self.expect_op(";")
+            bcs.append(BoundaryEq(eq, at_domain, at_expr, 0))
+        return bcs
 
     # -- expressions (precedence climbing) --------------------------------------
     def parse_expr(self, min_prec: float = 0.0) -> Node:
