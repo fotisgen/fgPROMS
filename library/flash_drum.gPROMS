@@ -1,0 +1,28 @@
+# ============================================================
+#  fgPROMS library: Flash drum (binary mixture, CoolProp HEOS)
+#  Given T, P and the feed composition z, computes:
+#    Q  = vapour fraction (two-phase equilibrium)
+#    V  = vapour flow,  L = liquid flow
+#    Hf = mixture enthalpy (mass-specific, J/kg)
+#  The duty Qduty is left for the user (e.g. adiabatic: 0).
+#  Specify F and one composition via SET or connections.
+# ============================================================
+MODEL FlashDrum
+  PARAMETER
+    T AS REAL DEFAULT 270.0      # K
+    P AS REAL DEFAULT 2.0E5      # Pa
+  VARIABLE
+    F     AS REAL                # feed flow, mol/s
+    z     AS ARRAY(2) OF REAL    # feed composition
+    Q     AS REAL                # vapour fraction
+    V     AS REAL                # vapour flow, mol/s
+    L     AS REAL                # liquid flow, mol/s
+    Hf    AS REAL                # feed enthalpy, J/kg
+    Qduty AS REAL                # duty, W (SET by the user; 0 = adiabatic)
+  EQUATION
+    z(1) + z(2) = 1 ;
+    Q = Q('n-Butane&Propane', z, T, P) ;
+    V = F * Q ;
+    L = F - V ;
+    Hf = H('n-Butane&Propane', z, T, P) ;
+END

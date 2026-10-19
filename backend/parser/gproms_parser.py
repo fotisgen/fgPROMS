@@ -51,7 +51,7 @@ RESERVED = SECTION_KEYWORDS | {
     "CONTINUE", "FOR", "TO", "STEP", "SEQUENCE", "AS", "REAL", "INTEGER",
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN",
     "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
-    "WITH", "PHASE", "MATERIAL", "FROM", "FILE",
+    "WITH", "PHASE", "MATERIAL", "FROM", "FILE", "DO",
 }
 
 
@@ -211,6 +211,14 @@ class IfEquation(Equation):
     cond: Node
     then_eqs: List[Equation]
     else_eqs: List[Equation]
+
+
+@dataclass
+class ForEquation(Equation):
+    var: str                 # loop variable
+    lo: Node
+    hi: Node
+    eqs: List[Equation]
 
 
 @dataclass
@@ -735,6 +743,18 @@ class Parser:
                 break
             if self.peek().kind == "IDENT" and self.peek().value.upper() in SECTION_KEYWORDS:
                 break
+            if self.at_kw("FOR"):
+                self.next()
+                var = self.expect_ident().value
+                self.expect_op(":=")
+                lo = self.parse_expr()
+                self.expect_kw("TO")
+                hi = self.parse_expr()
+                self.expect_kw("DO")
+                inner = self.parse_eq_list()
+                self.expect_kw("END")
+                eqs.append(ForEquation(var, lo, hi, inner))
+                continue
             eqs.append(self.parse_equation())
             self.expect_op(";")
         return eqs

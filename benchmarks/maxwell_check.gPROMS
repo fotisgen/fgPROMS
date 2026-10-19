@@ -1,0 +1,28 @@
+# ============================================================
+#  fgPROMS benchmark: Maxwell relation verification (thermo)
+#  For a pure fluid:  (dh/dP)_T = v - T * (dv/dT)_P
+#  Verified NUMERICALLY through the modelling language with
+#  central finite differences of CoolProp properties.
+#  The residual `err` must be ~0 (finite-difference accuracy).
+# ============================================================
+MODEL MaxwellCheck
+  PARAMETER
+    T  AS REAL DEFAULT 400.0     # K
+    P  AS REAL DEFAULT 2.0E6     # Pa
+    dP AS REAL DEFAULT 200.0     # Pa perturbation
+    dT AS REAL DEFAULT 0.1       # K perturbation
+  VARIABLE
+    dHdP AS REAL
+    V    AS REAL
+    dVdT AS REAL
+    lhs  AS REAL
+    rhs  AS REAL
+    err  AS REAL
+  EQUATION
+    dHdP = (H('Water', T, P + dP) - H('Water', T, P - dP)) / (2 * dP) ;
+    V = 1 / RHO('Water', T, P) ;
+    dVdT = (1/RHO('Water', T + dT, P) - 1/RHO('Water', T - dT, P)) / (2 * dT) ;
+    lhs = dHdP ;
+    rhs = V - T * dVdT ;
+    err = lhs - rhs ;
+END
