@@ -8,7 +8,8 @@ CodeMirror.defineMode("gproms", function () {
     "BOUNDS", "PROCESS", "UNIT",
   ];
   const FUNC = ["EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN",
-                "SIGN", "MAX", "MIN", "SIGMA"];
+                "SIGN", "MAX", "MIN", "SIGMA", "CP", "CV", "RHO", "H", "S",
+                "VISC", "TC", "PC", "M"];
   return {
     token: function (stream) {
       if (stream.eatSpace()) return null;

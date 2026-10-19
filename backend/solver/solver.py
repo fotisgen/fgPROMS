@@ -14,7 +14,7 @@ import numpy as np
 from scipy.optimize import root, minimize
 
 from ..parser.gproms_parser import (
-    Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr,
+    Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr, Indexed,
     EqEquation, IfEquation, Model,
 )
 from ..properties import PROP_FUNCS, make_prop_call
@@ -67,7 +67,7 @@ def _sign(x: float) -> float:
 
 
 SUPPORTED_FUNCS = {"EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN",
-                   "SIGN", "MAX", "MIN"}
+                   "SIGN", "MAX", "MIN", "SIGMA"}
 
 _UNARY_FUNCS = {
     "EXP": safe_exp, "LN": safe_ln, "LOG": safe_log10, "SQRT": safe_sqrt,
@@ -136,6 +136,24 @@ def make_eval(node) -> object:
             fluid = node.args[0].value
             arg_fns = [make_eval(a) for a in node.args[1:]]
             fn = make_prop_call(node.name, fluid, arg_fns)
+        elif node.name == "SIGMA" and len(node.args) == 4:
+            expr_fn = make_eval(node.args[0])
+            idx_name = (node.args[1].name.lower()
+                        if isinstance(node.args[1], Var) else None)
+            lo_fn = make_eval(node.args[2])
+            hi_fn = make_eval(node.args[3])
+
+            def fn(env, _e=expr_fn, _l=lo_fn, _h=hi_fn, _i=idx_name):
+                if _i is None:
+                    return 0.0
+                lo = int(round(_l(env)))
+                hi = int(round(_h(env)))
+                total = 0.0
+                for k in range(lo, hi + 1):
+                    env[_i] = float(k)
+                    total += _e(env)
+                env.pop(_i, None)
+                return total
         elif node.name in _UNARY_FUNCS and len(node.args) == 1:
             f = make_eval(node.args[0])
             u = _UNARY_FUNCS[node.name]
@@ -146,6 +164,11 @@ def make_eval(node) -> object:
             fn = lambda env, _fs=fs, _u=u: _u(f(env) for f in _fs)
         else:
             fn = lambda env: 0.0
+    elif isinstance(node, Indexed):
+        base = node.name.lower()
+        idx_fn = make_eval(node.index)
+        fn = lambda env, _b=base, _f=idx_fn: \
+            env.get(f"{_b}({int(round(_f(env)))})", 0.0)
     elif isinstance(node, IfExpr):
         c = make_eval(node.cond)
         a = make_eval(node.then)
@@ -256,7 +279,8 @@ def _newton(fun, jac_fn, x0, maxiter: int = 200, tol: float = 1e-10):
 # --------------------------------------------------------------------------
 def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, float],
                 compiled: list, time_var: Optional[str] = None,
-                t: float = 0.0, _disable_newton: bool = False
+                t: float = 0.0, _disable_newton: bool = False,
+                array_sizes: Optional[Dict[str, int]] = None
                 ) -> Tuple[bool, Optional[np.ndarray], str, List[Tuple[int, float]]]:
     """Solve the system for the unknowns in `names`. Returns
     (success, solution, method, residual_id_pairs)."""
@@ -285,7 +309,7 @@ def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, floa
     # ---- attempt analytic Newton (SymPy Jacobian) first -------------------
     if not _disable_newton:
         try:
-            jac = build_jacobian(compiled, names, base)
+            jac = build_jacobian(compiled, names, base, array_sizes=array_sizes)
             if jac is not None and jacobian_is_available(jac, x0, names, base):
                 x_newt, ok_newt, _ = _newton(fun, jac, x0)
                 if ok_newt:
@@ -349,7 +373,8 @@ def solve_steady(model: Model, info: dict) -> dict:
     guesses: Dict[str, float] = info["_initial_guess"]
     compiled = compile_model(model)
 
-    ok, sol, method, pairs = _root_solve(names, guesses, base, compiled)
+    ok, sol, method, pairs = _root_solve(names, guesses, base, compiled,
+                                         array_sizes=info.get("_array_sizes"))
 
     if not ok:
         if method == "dof_mismatch":
@@ -403,7 +428,8 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
     try:
         jeval = compile_jacobian(compiled, allv, base,
                                  deriv_names=tuple("$" + s for s in states),
-                                 param_names=(tv,))
+                                 param_names=(tv,),
+                                 array_sizes=info.get("_array_sizes"))
     except Exception:
         jeval = None
 
@@ -434,7 +460,9 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
         init_base[tv] = t0
         for s in states:
             init_base[s] = prev[s]
-        ok, sol, method, pairs = _root_solve(init_names, init_x0, init_base, compiled)
+        ok, sol, method, pairs = _root_solve(init_names, init_x0, init_base,
+                                             compiled,
+                                             array_sizes=info.get("_array_sizes"))
         if not ok:
             if method == "dof_mismatch":
                 msg = {"level": "error", "code": "err_dof_mismatch",
@@ -648,7 +676,8 @@ def solve_optimize(model: Model, info: dict) -> dict:
     constraints = [{"type": "eq", "fun": cons}]
     jac = None
     try:
-        jac = build_jacobian(compiled, names, base)
+        jac = build_jacobian(compiled, names, base,
+                             array_sizes=info.get("_array_sizes"))
         if jac is not None and jacobian_is_available(jac, x0, names, base):
             constraints[0]["jac"] = jac
         else:

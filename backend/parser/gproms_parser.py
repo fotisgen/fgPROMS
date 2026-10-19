@@ -298,6 +298,12 @@ _BIN_PREC = {
 }
 _SYM = {"**": "^"}
 
+# function names (math + properties) — anything else followed by '(' is an
+# indexed array access like z(1)
+FUNC_NAMES = {"EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN", "SIGN",
+              "MAX", "MIN", "SIGMA",
+              "CP", "CV", "RHO", "H", "S", "VISC", "TC", "PC", "M"}
+
 
 def _join_type(toks: List[Token]) -> str:
     """Join type tokens into a readable type string, e.g.
@@ -328,6 +334,8 @@ def expr_str(n: Node, outer: float = 0.0) -> str:
         return f"({s})" if n.v < 0 and outer < 7 else s
     if isinstance(n, Str):
         return f"'{n.value}'"
+    if isinstance(n, Indexed):
+        return f"{n.name}({expr_str(n.index)})"
     if isinstance(n, Var):
         return n.name
     if isinstance(n, Deriv):
@@ -605,6 +613,12 @@ class Parser:
             while self.at_op(".") and self.peek(1).kind == "IDENT":
                 self.next()
                 name += "." + self.next().value
+            # indexed target: z(1) := 0.4
+            if self.at_op("("):
+                self.next()
+                idx = self.parse_expr()
+                self.expect_op(")")
+                name += f"({expr_str(idx)})"
             t = self.peek()
             if t.kind == "OP" and t.value in (":=", "="):
                 self.next()
@@ -759,23 +773,26 @@ class Parser:
                 self.next()
                 return Num(0.0)
             self.next()
-            if self.at_op("("):
-                self.next()
-                args: List[Node] = []
-                if not self.at_op(")"):
-                    while True:
-                        args.append(self.parse_expr())
-                        if self.at_op(","):
-                            self.next()
-                            continue
-                        break
-                self.expect_op(")")
-                return Func(u, args)
             # dotted name: unit.variable (flowsheet connections)
             name = t.value
             while self.at_op(".") and self.peek(1).kind == "IDENT":
                 self.next()
                 name += "." + self.next().value
+            if self.at_op("("):
+                self.next()
+                first = self.parse_expr()
+                if (self.at_op(",") and "." not in name
+                        and name.upper() in FUNC_NAMES):
+                    args = [first]
+                    while self.at_op(","):
+                        self.next()
+                        args.append(self.parse_expr())
+                    self.expect_op(")")
+                    return Func(name.upper(), args)
+                self.expect_op(")")
+                if "." not in name and name.upper() in FUNC_NAMES:
+                    return Func(name.upper(), [first])
+                return Indexed(name, first)
             return Var(name)
         if t.kind == "OP" and t.value == "(":
             self.next()

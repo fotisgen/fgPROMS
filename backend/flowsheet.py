@@ -15,10 +15,20 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Set, Tuple
 
 from .parser.gproms_parser import (
-    Model, ProcessDef, Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr,
+    Model, ProcessDef, Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr, Indexed,
     EqEquation, IfEquation, expr_str,
 )
 from .solver.solver import make_eval
+
+import re  # noqa: E402
+
+
+def _expand_names(name: str, type_text: str):
+    m = re.match(r"ARRAY\s*\(\s*(\d+)\s*\)", type_text or "", re.IGNORECASE)
+    if m:
+        n = int(m.group(1))
+        return [f"{name}({k})" for k in range(1, n + 1)]
+    return [name]
 
 # --------------------------------------------------------------------------
 # AST rewriting
@@ -47,6 +57,8 @@ def _rewrite(node, prefix: str):
         return BinOp(node.op, _rewrite(node.l, prefix), _rewrite(node.r, prefix))
     if isinstance(node, Func):
         return Func(node.name, [_rewrite(a, prefix) for a in node.args])
+    if isinstance(node, Indexed):
+        return Indexed(prefix + node.name, _rewrite(node.index, prefix))
     if isinstance(node, IfExpr):
         return IfExpr(_rewrite(node.cond, prefix), _rewrite(node.then, prefix),
                       _rewrite(node.els, prefix))
@@ -163,8 +175,9 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
         var_disp: Dict[str, str] = {}
         for d in m.variables:
             for nm in d.names:
-                var_names.add(nm.lower())
-                var_disp[nm.lower()] = nm
+                for exp in _expand_names(nm, d.type_text):
+                    var_names.add(exp.lower())
+                    var_disp[exp.lower()] = exp
         unit_var_names[key] = var_names
         unit_var_display[key] = var_disp
 
@@ -207,19 +220,20 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
         prefix = disp + "."
         for d in m.variables:
             for nm in d.names:
-                k = nm.lower()
-                full = f"{key}.{k}"
-                display[full] = prefix + nm
-                if full not in fixed:
-                    unknowns.append(full)
-                g = None
-                for a2 in m.initial:
-                    if a2.name.lower() == k:
-                        g = _eval(a2.value, unit_envs[key])
-                        has_initial.add(full)
-                if g is None:
-                    g = _eval(d.default, unit_envs[key])
-                guesses[full] = g if g is not None else 0.0
+                for exp in _expand_names(nm, d.type_text):
+                    k = exp.lower()
+                    full = f"{key}.{k}"
+                    display[full] = prefix + exp
+                    if full not in fixed:
+                        unknowns.append(full)
+                    g = None
+                    for a2 in m.initial:
+                        if a2.name.lower() == k:
+                            g = _eval(a2.value, unit_envs[key])
+                            has_initial.add(full)
+                    if g is None:
+                        g = _eval(d.default, unit_envs[key])
+                    guesses[full] = g if g is not None else 0.0
         for eq in m.equations:
             combined.append(_rewrite_eq(eq, prefix))
 
@@ -247,12 +261,20 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
             vars_out.add(node.name.lower())
         elif isinstance(node, Deriv):
             derivs_out.add(node.name.lower())
+        elif isinstance(node, Indexed):
+            if isinstance(node.index, Num):
+                vars_out.add(f"{node.name.lower()}({int(node.index.v)})")
         elif isinstance(node, UnOp):
             collect(node.x, vars_out, derivs_out)
         elif isinstance(node, BinOp):
             collect(node.l, vars_out, derivs_out)
             collect(node.r, vars_out, derivs_out)
         elif isinstance(node, Func):
+            if node.name == "SIGMA" and len(node.args) == 4:
+                collect(node.args[0], vars_out, derivs_out)
+                collect(node.args[2], vars_out, derivs_out)
+                collect(node.args[3], vars_out, derivs_out)
+                return
             for a in node.args:
                 collect(a, vars_out, derivs_out)
         elif isinstance(node, IfExpr):

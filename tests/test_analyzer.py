@@ -43,7 +43,9 @@ END
     assert has_msg(r, "warn_undeclared", "warn")
 
 
-def test_unsupported_function_blocks():
+def test_unknown_function_used_as_index_errors():
+    """ERF(a) parses as an indexed access now — a name that is not an
+    ARRAY must produce a clear error, not silent garbage."""
     r = run_code("""
 MODEL M
   PARAMETER
@@ -54,7 +56,7 @@ MODEL M
     x = ERF(a) ;
 END
 """)
-    assert has_msg(r, "err_unsupported_func", "error")
+    assert has_msg(r, "err_not_array", "error")
     assert r["results"] is None
 
 

@@ -15,7 +15,7 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import sympy as sp
 
-from ..parser.gproms_parser import Num, Var, Deriv, UnOp, BinOp, Func
+from ..parser.gproms_parser import Num, Str, Var, Deriv, UnOp, BinOp, Func, Indexed
 
 _CUT = sp.Float(1e-10)
 
@@ -58,10 +58,13 @@ _UNARY = {
 }
 
 
-def _to_sympy(node, sym_of: Callable[[str], sp.Expr]) -> sp.Expr:
+def _to_sympy(node, sym_of: Callable[[str], sp.Expr],
+              arrays: Optional[Dict[str, int]] = None) -> sp.Expr:
     """Translate an AST node into a SymPy expression.
     `sym_of(name)` maps canonical variable names to SymPy expressions
-    (Symbols for unknowns, Floats for fixed parameters)."""
+    (Symbols for unknowns, Floats for fixed parameters). `arrays` maps
+    array base names to their sizes so symbolic indices (SIGMA) can be
+    expanded to piecewise element lookups."""
     if isinstance(node, Num):
         return sp.Float(node.v)
     if isinstance(node, Var):
@@ -69,7 +72,7 @@ def _to_sympy(node, sym_of: Callable[[str], sp.Expr]) -> sp.Expr:
     if isinstance(node, Deriv):
         return sym_of("$" + node.name.lower())
     if isinstance(node, UnOp):
-        x = _to_sympy(node.x, sym_of)
+        x = _to_sympy(node.x, sym_of, arrays)
         if node.op == "-":
             return -x
         raise ValueError("NOT is not differentiable")
@@ -77,8 +80,8 @@ def _to_sympy(node, sym_of: Callable[[str], sp.Expr]) -> sp.Expr:
         op = node.op
         if op in ("=", "<>", "<", "<=", ">", ">=", "AND", "OR"):
             raise ValueError(f"{op} is not differentiable")
-        l = _to_sympy(node.l, sym_of)
-        r = _to_sympy(node.r, sym_of)
+        l = _to_sympy(node.l, sym_of, arrays)
+        r = _to_sympy(node.r, sym_of, arrays)
         if op == "+":
             return l + r
         if op == "-":
@@ -91,12 +94,44 @@ def _to_sympy(node, sym_of: Callable[[str], sp.Expr]) -> sp.Expr:
             return l ** r
         raise ValueError(f"unknown operator {op}")
     if isinstance(node, Func):
+        if node.name == "SIGMA" and len(node.args) == 4:
+            lo = _to_sympy(node.args[2], sym_of, arrays)
+            hi = _to_sympy(node.args[3], sym_of, arrays)
+            if not (isinstance(lo, sp.Number) and isinstance(hi, sp.Number)):
+                raise ValueError("non-numeric SIGMA bounds")
+            idx = node.args[1]
+            if not isinstance(idx, Var):
+                raise ValueError("SIGMA index must be a variable")
+            idx_sym = sp.Symbol(idx.name.lower())
+
+            def idx_sym_of(name):
+                if name == idx.name.lower():
+                    return idx_sym
+                return sym_of(name)
+
+            total = sp.Integer(0)
+            for k in range(int(lo), int(hi) + 1):
+                total += _to_sympy(node.args[0], idx_sym_of, arrays).subs(
+                    idx_sym, sp.Integer(k))
+            return total
         if node.name in ("MAX", "MIN"):
-            args = [_to_sympy(a, sym_of) for a in node.args]
+            args = [_to_sympy(a, sym_of, arrays) for a in node.args]
             return sp.Max(*args) if node.name == "MAX" else sp.Min(*args)
         if node.name in _UNARY and len(node.args) == 1:
-            return _UNARY[node.name](_to_sympy(node.args[0], sym_of))
+            return _UNARY[node.name](_to_sympy(node.args[0], sym_of, arrays))
         raise ValueError(f"{node.name} is not differentiable")
+    if isinstance(node, Indexed):
+        base = node.name.lower()
+        idx_sym = _to_sympy(node.index, sym_of, arrays)
+        if isinstance(idx_sym, sp.Number):
+            return sym_of(f"{base}({int(idx_sym)})")
+        # symbolic index (SIGMA loop variable): piecewise element lookup
+        if arrays and base in arrays:
+            n = arrays[base]
+            terms = [(sym_of(f"{base}({k})"),
+                      sp.Eq(idx_sym, sp.Integer(k))) for k in range(1, n + 1)]
+            return sp.Piecewise(*terms, (sp.Integer(0), True))
+        raise ValueError("symbolic index outside SIGMA")
     raise ValueError(f"unsupported node {type(node).__name__}")
 
 
@@ -156,18 +191,23 @@ class JacobianEvaluator:
 def compile_jacobian(compiled: list, names: List[str],
                      fixed: Dict[str, float],
                      deriv_names: tuple = (),
-                     param_names: tuple = ()) -> Optional[JacobianEvaluator]:
+                     param_names: tuple = (),
+                     array_sizes: Optional[Dict[str, int]] = None
+                     ) -> Optional[JacobianEvaluator]:
     """Compile the analytic Jacobian structure once.
 
     * `deriv_names`: derivative placeholders ('$s') that are linear in an
       unknown — their numeric coefficients are supplied per evaluation.
     * `param_names`: names treated as evaluation-time constants (e.g. the
       schedule time variable).
+    * `array_sizes`: base name -> array length, so symbolic indices inside
+      SIGMA can be expanded to piecewise element lookups.
     """
     syms: Dict[str, sp.Expr] = {n: sp.Symbol(n) for n in names}
     dsyms: Dict[str, sp.Expr] = {d: sp.Symbol(d) for d in deriv_names}
     psyms: Dict[str, sp.Expr] = {p: sp.Symbol(p) for p in param_names}
     all_syms = [syms[n] for n in names] + [psyms[p] for p in param_names]
+    array_sizes = array_sizes or {}
 
     def sym_of(name: str) -> sp.Expr:
         if name in syms:
@@ -190,7 +230,8 @@ def compile_jacobian(compiled: list, names: List[str],
     def c(eq) -> bool:
         if eq[0] == "eq":
             try:
-                expr = _to_sympy(eq[4], sym_of) - _to_sympy(eq[5], sym_of)
+                expr = (_to_sympy(eq[4], sym_of, array_sizes)
+                        - _to_sympy(eq[5], sym_of, array_sizes))
             except Exception:
                 return False
             gx = [sp.diff(expr, syms[n]) for n in names]
@@ -215,7 +256,8 @@ def compile_jacobian(compiled: list, names: List[str],
 def build_jacobian(compiled: list, names: List[str],
                    fixed: Dict[str, float],
                    extra_consts: Optional[Dict[str, float]] = None,
-                   lin_deriv: Optional[Dict[str, tuple]] = None
+                   lin_deriv: Optional[Dict[str, tuple]] = None,
+                   array_sizes: Optional[Dict[str, int]] = None
                    ) -> Optional[Callable]:
     """Build a jac(x) -> ndarray callable for the active branch structure,
     or None if the symbolic translation is not possible.
@@ -225,13 +267,15 @@ def build_jacobian(compiled: list, names: List[str],
     * `lin_deriv`: derivative placeholders expressed as linear functions of
       an unknown: {'$s': (c1, c0)} means '$s' = c1*s + c0 — used by the
       BDF stepping so the Jacobian includes the discretisation terms.
+    * `array_sizes`: base name -> array length (for symbolic SIGMA indices).
     """
     extra_consts = extra_consts or {}
     lin_deriv = lin_deriv or {}
     try:
         ev = compile_jacobian(compiled, names, fixed,
                               deriv_names=tuple(lin_deriv.keys()),
-                              param_names=tuple(extra_consts.keys()))
+                              param_names=tuple(extra_consts.keys()),
+                              array_sizes=array_sizes)
     except Exception:
         return None
     if ev is None:

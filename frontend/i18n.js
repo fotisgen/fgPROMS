@@ -190,6 +190,7 @@ const MSG = {
     err_flowsheet_no_schedule: "Το flowsheet περιέχει δυναμικές μονάδες — πρόσθεσε SCHEDULE στο PROCESS (π.χ. CONTINUE FOR t := 0 TO 20 STEP 0.2).",
     warn_process_set_ignored: "Το SET «{name}» του PROCESS αγνοήθηκε (άγνωστο στοιχείο).",
     info_flowsheet_summary: "Flowsheet «{name}»: {nu} μονάδες, {nv} μεταβλητές, {ne} εξισώσεις.",
+    err_not_array: "Το «{name}» χρησιμοποιείται με δείκτη, αλλά δεν έχει δηλωθεί ως ARRAY. Μήπως εννοούσες κάποια συνάρτηση;",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -231,5 +232,6 @@ const MSG = {
     err_flowsheet_no_schedule: "The flowsheet contains dynamic units — add a SCHEDULE to the PROCESS (e.g. CONTINUE FOR t := 0 TO 20 STEP 0.2).",
     warn_process_set_ignored: "PROCESS SET “{name}” was ignored (unknown element).",
     info_flowsheet_summary: "Flowsheet “{name}”: {nu} units, {nv} variables, {ne} equations.",
+    err_not_array: "“{name}” is used with an index but is not declared as an ARRAY. Did you mean a function?",
   },
 };

@@ -9,10 +9,11 @@ Produces:
 """
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional, Set
 
 from ..parser.gproms_parser import (
-    Model, Num, Var, Deriv, UnOp, BinOp, Func, IfExpr,
+    Model, Num, Var, Deriv, UnOp, BinOp, Func, IfExpr, Indexed,
     EqEquation, IfEquation, expr_str,
 )
 from ..properties import PROP_FUNCS, COOLPROP_AVAILABLE
@@ -24,12 +25,22 @@ def _collect(node, vars_out: Set[str], derivs_out: Set[str]) -> None:
         vars_out.add(node.name.lower())
     elif isinstance(node, Deriv):
         derivs_out.add(node.name.lower())
+    elif isinstance(node, Indexed):
+        if isinstance(node.index, Num):
+            vars_out.add(f"{node.name.lower()}({int(node.index.v)})")
+        # symbolic indices are SIGMA loop variables — not model variables
     elif isinstance(node, UnOp):
         _collect(node.x, vars_out, derivs_out)
     elif isinstance(node, BinOp):
         _collect(node.l, vars_out, derivs_out)
         _collect(node.r, vars_out, derivs_out)
     elif isinstance(node, Func):
+        if node.name == "SIGMA" and len(node.args) == 4:
+            # the index variable is not a model variable — skip it
+            _collect(node.args[0], vars_out, derivs_out)
+            _collect(node.args[2], vars_out, derivs_out)
+            _collect(node.args[3], vars_out, derivs_out)
+            return
         for a in node.args:
             _collect(a, vars_out, derivs_out)
     elif isinstance(node, IfExpr):
@@ -40,6 +51,11 @@ def _collect(node, vars_out: Set[str], derivs_out: Set[str]) -> None:
 
 def _collect_funcs(node, out: Set[str]) -> None:
     if isinstance(node, Func):
+        if node.name == "SIGMA" and len(node.args) == 4:
+            _collect_funcs(node.args[0], out)
+            _collect_funcs(node.args[2], out)
+            _collect_funcs(node.args[3], out)
+            return
         out.add(node.name)
         for a in node.args:
             _collect_funcs(a, out)
@@ -52,6 +68,17 @@ def _collect_funcs(node, out: Set[str]) -> None:
         _collect_funcs(node.cond, out)
         _collect_funcs(node.then, out)
         _collect_funcs(node.els, out)
+    elif isinstance(node, Indexed):
+        _collect_funcs(node.index, out)
+
+
+def _expand_decl_names(name: str, type_text: str) -> List[str]:
+    """Expand ARRAY(n) declarations into n indexed scalar names z(1)..z(n)."""
+    m = re.match(r"ARRAY\s*\(\s*(\d+)\s*\)", type_text or "", re.IGNORECASE)
+    if m:
+        n = int(m.group(1))
+        return [f"{name}({k})" for k in range(1, n + 1)]
+    return [name]
 
 
 def _eval_const(node, env: Dict[str, float]) -> Optional[float]:
@@ -78,27 +105,38 @@ def analyze(model: Model) -> dict:
     params: List[dict] = []
     variables: List[dict] = []
     seen: Set[str] = set()
+    array_sizes: Dict[str, int] = {}
 
     for d in model.parameters:
         for nm in d.names:
-            key = nm.lower()
-            if key in seen:
-                messages.append({"level": "warn", "code": "warn_duplicate",
-                                 "args": {"name": nm}})
-                continue
-            seen.add(key)
-            params.append({"name": nm, "lower": key, "type": d.type_text,
-                           "default_node": d.default, "line": d.line})
+            m_arr = re.match(r"ARRAY\s*\(\s*(\d+)\s*\)", d.type_text or "",
+                             re.IGNORECASE)
+            if m_arr:
+                array_sizes[nm.lower()] = int(m_arr.group(1))
+            for exp in _expand_decl_names(nm, d.type_text):
+                key = exp.lower()
+                if key in seen:
+                    messages.append({"level": "warn", "code": "warn_duplicate",
+                                     "args": {"name": exp}})
+                    continue
+                seen.add(key)
+                params.append({"name": exp, "lower": key, "type": d.type_text,
+                               "default_node": d.default, "line": d.line})
     for d in model.variables:
         for nm in d.names:
-            key = nm.lower()
-            if key in seen:
-                messages.append({"level": "warn", "code": "warn_duplicate",
-                                 "args": {"name": nm}})
-                continue
-            seen.add(key)
-            variables.append({"name": nm, "lower": key, "type": d.type_text,
-                              "default_node": d.default, "line": d.line})
+            m_arr = re.match(r"ARRAY\s*\(\s*(\d+)\s*\)", d.type_text or "",
+                             re.IGNORECASE)
+            if m_arr:
+                array_sizes[nm.lower()] = int(m_arr.group(1))
+            for exp in _expand_decl_names(nm, d.type_text):
+                key = exp.lower()
+                if key in seen:
+                    messages.append({"level": "warn", "code": "warn_duplicate",
+                                     "args": {"name": exp}})
+                    continue
+                seen.add(key)
+                variables.append({"name": exp, "lower": key, "type": d.type_text,
+                                  "default_node": d.default, "line": d.line})
 
     # ---- parameter values (evaluated in declaration order) ------------------
     env: Dict[str, float] = {}
@@ -206,6 +244,38 @@ def analyze(model: Model) -> dict:
         eq_count += count_leaves(eq)
         walk_rows(eq, 0)
 
+    # indexed bases used anywhere in the equations
+    indexed_bases: Set[str] = set()
+
+    def scan_indexed(node):
+        if isinstance(node, Indexed):
+            indexed_bases.add(node.name.lower())
+            scan_indexed(node.index)
+        elif isinstance(node, UnOp):
+            scan_indexed(node.x)
+        elif isinstance(node, BinOp):
+            scan_indexed(node.l)
+            scan_indexed(node.r)
+        elif isinstance(node, Func):
+            for a in node.args:
+                scan_indexed(a)
+        elif isinstance(node, IfExpr):
+            scan_indexed(node.cond)
+            scan_indexed(node.then)
+            scan_indexed(node.els)
+
+    def scan_eq_indexed(eq):
+        if isinstance(eq, EqEquation):
+            scan_indexed(eq.lhs)
+            scan_indexed(eq.rhs)
+        else:
+            scan_indexed(eq.cond)
+            for e in eq.then_eqs + eq.else_eqs:
+                scan_eq_indexed(e)
+
+    for eq in model.equations:
+        scan_eq_indexed(eq)
+
     # ---- unknowns, states, undeclared names -----------------------------------
     unknowns = [v["lower"] for v in variables if v["lower"] not in fixed]
     declared = {p["lower"] for p in params} | {v["lower"] for v in variables}
@@ -273,6 +343,12 @@ def analyze(model: Model) -> dict:
         messages.append({"level": "error", "code": "err_unsupported_func",
                          "args": {"name": f}})
     if unsupported:
+        blocked = True
+
+    # indexed access on a name that is not a declared ARRAY
+    for b in sorted(indexed_bases - set(array_sizes)):
+        messages.append({"level": "error", "code": "err_not_array",
+                         "args": {"name": b}})
         blocked = True
 
     prop_used = sorted(f for f in funcs_used if f in PROP_FUNCS)
@@ -366,4 +442,5 @@ def analyze(model: Model) -> dict:
         "_is_optimization": is_optimization,
         "_bounds": bounds_info,
         "_objective": objective,
+        "_array_sizes": array_sizes,
     }

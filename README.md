@@ -58,18 +58,31 @@ END
 | `DEFAULT` τιμές, `SET` (καθορισμός μεταβλητών) | ✅ |
 | `IF … THEN … ELSE … END` (συνθήκες σε εξισώσεις) | ✅ |
 | Δυναμικά: παράγωγοι `$x` = dx/dt, `INITIAL`, `SCHEDULE` | ✅ |
+| **Δυναμικός επιλυτής BDF2** με προσαρμοστικό βήμα (2η τάξη) | ✅ |
 | **Βελτιστοποίηση**: `OPTIMIZE` (MAXIMIZE/MINIMIZE), `BOUNDS` — SLSQP | ✅ |
 | **Flowsheets**: `PROCESS`, `UNIT name AS Type [SET …]`, συνδέσεις `R2.x = R1.y` | ✅ |
+| **Dynamic flowsheets**: μονάδες με `$` + `SCHEDULE`/`INITIAL` στο PROCESS | ✅ |
+| **Πίνακες & αθροίσματα**: `z AS ARRAY(3)`, `z(1)`, `SIGMA(expr, i, 1, N)` | ✅ |
 | **Ιδιότητες**: `CP('Water',T,P)`, `CV`, `RHO`, `H`, `S`, `VISC`, `TC`, `PC`, `M` (CoolProp, SI) | ✅ |
+| **Βιβλιοθήκη μονάδων**: `library/` (Heater, Pump, Mixer, Splitter, Flash) | ✅ |
 | **Projects**: αποθήκευση/φόρτωση αρχείων στον φάκελο `projects/` | ✅ |
 | **Εξαγωγή CSV** αποτελεσμάτων | ✅ |
 | Αναλυτικά Jacobians (SymPy) + damped Newton | ✅ |
 | Τελεστές `+ - * / ^`, παρενθέσεις, σχόλια `#`, strings `'…'` | ✅ |
-| Συναρτήσεις `EXP LN LOG SQRT ABS SIN COS TAN SIGN MAX MIN` | ✅ |
-| Steady-state (Newton/LM) + δυναμική (DAE, implicit Euler) | ✅ |
-| `SELECTOR`, `DISTRIBUTION_DOMAIN`, `STREAM`, `SIGMA` | ❌ (μετά τη Φάση 2) |
+| Συναρτήσεις `EXP LN LOG SQRT ABS SIN COS TAN SIGN MAX MIN SIGMA` | ✅ |
+| Steady-state (Newton/LM) + δυναμική (DAE, BDF2 adaptive) | ✅ |
+| `SELECTOR`, `DISTRIBUTION_DOMAIN`, `STREAM`, PDE | ❌ (μετά τη Φάση 2) |
 | Ανισότητες (`>`, `<`) σε εξισώσεις | ⚠️ αγνοούνται με προειδοποίηση |
 | Φυσικές ιδιότητες χωρίς CoolProp | ⚠️ καθαρό μήνυμα σφάλματος |
+
+## 📚 Εκπαιδευτικό υλικό
+
+- **Tutorials** (`docs/`): 4 μαθήματα στα ελληνικά — πρώτο μοντέλο, δυναμική
+  προσομοίωση, βελτιστοποίηση, flowsheets. Τα παραδείγματα κώδικα μέσα στα
+  tutorials **εκτελούνται αυτόματα από τη σουίτα ελέγχων** (δεν μπορούν να
+  ξεπεραστούν).
+- **Βιβλιοθήκη μονάδων** (`library/`): Heater, Pump, Mixer, Splitter, Flash —
+  αντέγραψε όποια μονάδα θες στο δικό σου μοντέλο.
 
 ## 📁 Δομή
 
