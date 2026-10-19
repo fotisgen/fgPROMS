@@ -125,11 +125,12 @@ AST → Pyomo + Ipopt (binaries μέσω `idaes get-extensions`, βλ. REPOS_REP
 ```
 ✓ Φάση 1  (ολοκληρώθηκε):  πυρήνας + GUI + 80 tests + benchmarks
 ✓ M1      (ολοκληρώθηκε):  έρευνα repos → REPOS_REPORT.md
-✓ M2      (αυτό το έγγραφο)
-→ M3      CSV export + projects
-→ M4      SymPy Jacobians
-→ M5      Βελτιστοποίηση (SLSQP)
-→ M6      CoolProp ιδιότητες
-→ M7      Flowsheets (UNIT/PROCESS/STREAM)
-→ Μελλοντικά: Pyomo+Ipopt, CasADi αξιολόγηση, MCP server (ιδέα DWSIM)
+✓ M2      (ολοκληρώθηκε):  ARCHITECTURE.md (αυτό το έγγραφο)
+✓ M3      (ολοκληρώθηκε):  CSV export + projects
+✓ M4      (ολοκληρώθηκε):  SymPy Jacobians
+✓ M5      (ολοκληρώθηκε):  Βελτιστοποίηση (SLSQP)
+✓ M6      (ολοκληρώθηκε):  CoolProp ιδιότητες
+✓ M7      (ολοκληρώθηκε):  Flowsheets (UNIT/PROCESS)
+→ Μελλοντικά: Pyomo+Ipopt, CasADi αξιολόγηση, MCP server (ιδέα DWSIM),
+  dynamic flowsheets, PDE διακριτοποίηση
 ```

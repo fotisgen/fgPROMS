@@ -35,7 +35,7 @@
 - **Ελληνικά/Αγγλικά**: εναλλαγή από το κουμπί επάνω δεξιά
 - **Άνοιγμα/Αποθήκευση** αρχείων τοπικά
 
-## 📜 Υποστηριζόμενη γλώσσα (Φάση 1)
+## 📜 Υποστηριζόμενη γλώσσα (Φάση 2)
 
 ```gproms
 MODEL CSTR
@@ -58,12 +58,18 @@ END
 | `DEFAULT` τιμές, `SET` (καθορισμός μεταβλητών) | ✅ |
 | `IF … THEN … ELSE … END` (συνθήκες σε εξισώσεις) | ✅ |
 | Δυναμικά: παράγωγοι `$x` = dx/dt, `INITIAL`, `SCHEDULE` | ✅ |
-| Τελεστές `+ - * / ^`, παρενθέσεις, σχόλια `#` | ✅ |
+| **Βελτιστοποίηση**: `OPTIMIZE` (MAXIMIZE/MINIMIZE), `BOUNDS` — SLSQP | ✅ |
+| **Flowsheets**: `PROCESS`, `UNIT name AS Type [SET …]`, συνδέσεις `R2.x = R1.y` | ✅ |
+| **Ιδιότητες**: `CP('Water',T,P)`, `CV`, `RHO`, `H`, `S`, `VISC`, `TC`, `PC`, `M` (CoolProp, SI) | ✅ |
+| **Projects**: αποθήκευση/φόρτωση αρχείων στον φάκελο `projects/` | ✅ |
+| **Εξαγωγή CSV** αποτελεσμάτων | ✅ |
+| Αναλυτικά Jacobians (SymPy) + damped Newton | ✅ |
+| Τελεστές `+ - * / ^`, παρενθέσεις, σχόλια `#`, strings `'…'` | ✅ |
 | Συναρτήσεις `EXP LN LOG SQRT ABS SIN COS TAN SIGN MAX MIN` | ✅ |
-| Steady-state επίλυση (Newton) + δυναμική (DAB/DAE, implicit Euler) | ✅ |
-| `SELECTOR`, `DISTRIBUTION_DOMAIN`, `UNIT`, `PROCESS`, `STREAM`, `SIGMA` | ❌ (μετά τη Φάση 1) |
+| Steady-state (Newton/LM) + δυναμική (DAE, implicit Euler) | ✅ |
+| `SELECTOR`, `DISTRIBUTION_DOMAIN`, `STREAM`, `SIGMA` | ❌ (μετά τη Φάση 2) |
 | Ανισότητες (`>`, `<`) σε εξισώσεις | ⚠️ αγνοούνται με προειδοποίηση |
-| Φυσικές ιδιότητες (Multiflash/gSAFT), PDE, foreign objects | ❌ |
+| Φυσικές ιδιότητες χωρίς CoolProp | ⚠️ καθαρό μήνυμα σφάλματος |
 
 ## 📁 Δομή
 
@@ -86,7 +92,7 @@ fgPROMS/
 
 Δύο επίπεδα ελέγχου:
 
-### Αυτοματοποιημένη σουίτα (80 έλεγχοι)
+### Αυτοματοποιημένη σουίτα (125 έλεγχοι)
 
 Διπλό κλικ στο **`test.bat`** (ή `.venv\Scripts\python -m pytest tests -v`):
 
@@ -94,9 +100,13 @@ fgPROMS/
 |---|---|
 | `tests/test_parser.py` | 20 έλεγχοι σύνταξης, προτεραιοτήτων τελεστών, σφαλμάτων |
 | `tests/test_analyzer.py` | 12 έλεγχοι DOF, διαγνωστικών, συνθηκών αποκλεισμού |
-| `tests/test_solver_steady.py` | αναλυτικές λύσεις: CSTR, εναλλάκτης, Rachford-Rice vs bisection |
+| `tests/test_solver_steady.py` | αναλυτικές λύσεις: CSTR, εναλλάκτης, Rachford-Rice vs bisection, Jacobians |
 | `tests/test_solver_dynamic.py` | εκθετική απόσβεση vs e^(−at), τάξη σύγκλισης, Van der Pol vs scipy, ισοζύγιο μάζας |
-| `tests/test_robustness.py` | 14 έλεγχοι: χαλασμένα αρχεία → καθαρά μηνύματα, ποτέ crash |
+| `tests/test_optimization.py` | SLSQP vs αναλυτικά βέλτιστα, όρια, εκφυλισμένες περιπτώσεις |
+| `tests/test_properties.py` | CoolProp: cp νερού vs βιβλιογραφία, ιδιότητες σε μοντέλα/βελτιστοποίηση |
+| `tests/test_flowsheet.py` | 2 CSTR σε σειρά vs αναλυτική λύση, SET overrides, σφάλματα |
+| `tests/test_projects.py` | project storage + CSV export |
+| `tests/test_robustness.py` | 15 έλεγχοι: χαλασμένα αρχεία → καθαρά μηνύματα, ποτέ crash |
 | `tests/test_api.py` | endpoints με FastAPI TestClient |
 
 Τα benchmarks (`benchmarks/`) είναι μοντέλα με **κλειστές αναλυτικές λύσεις**
