@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Set
 
 from ..parser.gproms_parser import (
     Model, Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr, Indexed,
-    EqEquation, IfEquation, expr_str,
+    EqEquation, IfEquation, ForEquation, expr_str,
 )
 from ..properties import PROP_FUNCS, COOLPROP_AVAILABLE
 from ..solver.solver import make_eval, SUPPORTED_FUNCS
@@ -380,6 +380,92 @@ def analyze(model: Model) -> dict:
         equations = model.equations
     # the solver and everything downstream must see the EXPANDED system
     model.equations = equations
+
+    # ---- FOR-loop expansion (indexed equations) -----------------------------
+    def _subst(node, var_l, k):
+        if isinstance(node, Var):
+            return Num(float(k)) if node.name.lower() == var_l else node
+        if isinstance(node, (Num, Str, Deriv)):
+            return node
+        if isinstance(node, UnOp):
+            return UnOp(node.op, _subst(node.x, var_l, k))
+        if isinstance(node, BinOp):
+            return BinOp(node.op, _subst(node.l, var_l, k),
+                         _subst(node.r, var_l, k))
+        if isinstance(node, Func):
+            return Func(node.name, [_subst(a, var_l, k) for a in node.args])
+        if isinstance(node, Indexed):
+            return Indexed(node.name, [_subst(i, var_l, k)
+                                       for i in node.indices])
+        if isinstance(node, IfExpr):
+            return IfExpr(_subst(node.cond, var_l, k),
+                          _subst(node.then, var_l, k),
+                          _subst(node.els, var_l, k))
+        return node
+
+    def _subst_eq(eq, var_l, k):
+        if isinstance(eq, EqEquation):
+            return EqEquation(_subst(eq.lhs, var_l, k),
+                              _subst(eq.rhs, var_l, k), eq.op)
+        if isinstance(eq, IfEquation):
+            return IfEquation(_subst(eq.cond, var_l, k),
+                              [_subst_eq(e, var_l, k) for e in eq.then_eqs],
+                              [_subst_eq(e, var_l, k) for e in eq.else_eqs])
+        raise ValueError("nested FOR loops are not supported")
+
+    def _is_const_expr(node, param_set):
+        if isinstance(node, (Num, Str)):
+            return True
+        if isinstance(node, Var):
+            return node.name.lower() in param_set
+        if isinstance(node, UnOp):
+            return _is_const_expr(node.x, param_set)
+        if isinstance(node, BinOp):
+            return (_is_const_expr(node.l, param_set)
+                    and _is_const_expr(node.r, param_set))
+        return False
+
+    param_set = {p["lower"] for p in params}
+
+    def _expand_fors(eqs):
+        out = []
+        for eq in eqs:
+            if isinstance(eq, ForEquation):
+                if (not _is_const_expr(eq.lo, param_set)
+                        or not _is_const_expr(eq.hi, param_set)):
+                    messages.append({"level": "error", "code": "err_for_bounds",
+                                     "args": {}})
+                    blocked = True
+                    continue
+                lo = _eval_const(eq.lo, env)
+                hi = _eval_const(eq.hi, env)
+                if lo is None or hi is None:
+                    messages.append({"level": "error", "code": "err_for_bounds",
+                                     "args": {}})
+                    blocked = True
+                    continue
+                var_l = eq.var.lower()
+                for k in range(int(lo), int(hi) + 1):
+                    for inner in eq.eqs:
+                        try:
+                            out.append(_subst_eq(inner, var_l, k))
+                        except ValueError:
+                            messages.append({"level": "error",
+                                             "code": "err_for_nested",
+                                             "args": {}})
+                            blocked = True
+                            break
+                    else:
+                        continue
+                    break
+            else:
+                out.append(eq)
+        return out
+
+    equations = _expand_fors(equations)
+    model.equations = equations
+    for ph in model.task_phases.values():
+        ph.equations = _expand_fors(ph.equations)
     rows: List[dict] = []
     leaf_counter = [0]
     derivs_used: Set[str] = set()

@@ -470,23 +470,95 @@ function renderResultsTab(d) {
 }
 
 /* ---------------- plots tab ---------------- */
+function baseGroups(values) {
+  const groups = {};
+  for (const k of Object.keys(values || {})) {
+    const m = k.match(/^(.+)\((\d+)\)$/);
+    if (m) {
+      const b = m[1];
+      (groups[b] = groups[b] || {})[parseInt(m[2])] = values[k];
+    } else {
+      groups[k] = values[k];
+    }
+  }
+  return groups;
+}
+
 function renderPlotsTab(d) {
   const el = $("tab-plots");
   const ts = d.timeSeries;
-  if (!ts) {
-    el.innerHTML = `<div class="note">${esc(t("noDynamic"))}</div>`;
+  if (ts) {
+    const names = Object.keys(ts.variables);
+    let html = `<div class="plot-controls"><span class="label">${t("selectVariables")}:</span>
+    <div class="checkbox-grid">`;
+    for (const n of names)
+      html += `<label class="check"><input type="checkbox" class="pv" value="${esc(n)}" checked> ${esc(n)}</label>`;
+    html += `</div><button id="btnPlot" class="btn">${t("plot")}</button></div>
+    <div id="plotArea" style="height:430px"></div>`;
+    el.innerHTML = html;
+    $("btnPlot").addEventListener("click", () => drawPlot(ts));
+    loadPlotly().then(() => drawPlot(ts)).catch(() => {});
     return;
   }
-  const names = Object.keys(ts.variables);
-  let html = `<div class="plot-controls"><span class="label">${t("selectVariables")}:</span>
-    <div class="checkbox-grid">`;
-  for (const n of names)
-    html += `<label class="check"><input type="checkbox" class="pv" value="${esc(n)}" checked> ${esc(n)}</label>`;
-  html += `</div><button id="btnPlot" class="btn">${t("plot")}</button></div>
-    <div id="plotArea" style="height:430px"></div>`;
-  el.innerHTML = html;
-  $("btnPlot").addEventListener("click", () => drawPlot(ts));
-  loadPlotly().then(() => drawPlot(ts)).catch(() => {});
+
+  // x-y plot for array results (phase envelopes, profiles, ...)
+  const groups = baseGroups(d.results ? d.results.values : null);
+  const arrayBases = Object.keys(groups).filter(
+    (b) => typeof groups[b] === "object");
+  if (arrayBases.length >= 2) {
+    let html = `<div class="plot-controls"><span class="label">${t("selectVariables")}:</span>
+      <div style="display:flex;gap:14px;margin:8px 0;flex-wrap:wrap">
+        <label class="check">${t("xyX")}:
+          <select id="xyX">${arrayBases.map((b) =>
+            `<option value="${esc(b)}">${esc(b)}</option>`).join("")}</select>
+        </label>
+      </div>
+      <div class="checkbox-grid">${arrayBases.map((b) =>
+        `<label class="check"><input type="checkbox" class="pvy" value="${esc(b)}" ${b === "Tb" || b === "tb" ? "checked" : ""}> ${esc(b)}</label>`).join("")}
+      </div>
+      <button id="btnPlotXY" class="btn">${t("plot")}</button></div>
+      <div id="plotArea" style="height:430px"></div>`;
+    el.innerHTML = html;
+    $("btnPlotXY").addEventListener("click", () => drawXY());
+    loadPlotly().then(() => drawXY()).catch(() => {});
+  } else {
+    el.innerHTML = `<div class="note">${esc(t("noDynamic"))}</div>`;
+  }
+}
+
+function drawXY() {
+  const el = $("tab-plots");
+  if (!el.querySelector("#plotArea") || !window.Plotly || !lastRun) return;
+  const groups = baseGroups(lastRun.results ? lastRun.results.values : null);
+  const xB = el.querySelector("#xyX").value;
+  const yBs = Array.from(el.querySelectorAll(".pvy:checked"))
+    .map((c) => c.value)
+    .filter((b) => b !== xB && typeof groups[b] === "object");
+  const gx = groups[xB];
+  const xIdx = Object.keys(gx).map(Number).sort((a, b) => a - b);
+  const traces = yBs.map((b) => {
+    const g = groups[b];
+    const yIdx = Object.keys(g).map(Number).sort((a, b) => a - b);
+    const common = xIdx.filter((i) => yIdx.includes(i));
+    return {
+      x: common.map((i) => gx[i]),
+      y: common.map((i) => g[i]),
+      mode: "lines+markers",
+      name: b,
+      line: { width: 2.2 },
+    };
+  });
+  const layout = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#cbd5e1", size: 12 },
+    margin: { l: 55, r: 20, t: 30, b: 45 },
+    xaxis: { title: xB, gridcolor: "#24324d", zerolinecolor: "#24324d" },
+    yaxis: { gridcolor: "#24324d", zerolinecolor: "#24324d" },
+    legend: { orientation: "h", font: { size: 11 } },
+    hovermode: "x unified",
+  };
+  Plotly.newPlot("plotArea", traces, layout, { responsive: true, displaylogo: false });
 }
 
 function drawPlot(ts) {

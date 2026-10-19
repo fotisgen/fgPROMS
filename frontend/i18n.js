@@ -28,6 +28,7 @@ const I18N = {
     time: "Χρόνος",
     selectVariables: "Επίλεξε μεταβλητές",
     plot: "Γράφημα",
+    xyX: "Μεταβλητή Χ",
     statusReady: "Έτοιμο",
     statusRunning: "Εκτέλεση…",
     statusDone: "Ολοκληρώθηκε",
@@ -109,6 +110,7 @@ const I18N = {
     time: "Time",
     selectVariables: "Select variables",
     plot: "Plot",
+    xyX: "X variable",
     statusReady: "Ready",
     statusRunning: "Running…",
     statusDone: "Done",
@@ -227,6 +229,8 @@ const MSG = {
     err_phase_dist: "Ο συνδυασμός TASK φάσεων με DISTRIBUTION δεν υποστηρίζεται ακόμη.",
     err_int_domain: "Ο τελεστής INT χρειάζεται κατανεμημένο τομέα (DISTRIBUTION). Π.χ.: INT(T, Axial).",
     err_units: "Ασυμβατότητα μονάδων στην εξίσωση «{eq}»: {dims}.",
+    err_for_bounds: "Μη έγκυρα όρια στον βρόχο FOR (χρειάζονται σταθερές αριθμητικές τιμές).",
+    err_for_nested: "Οι φωλιασμένοι βρόχοι FOR δεν υποστηρίζονται ακόμη.",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -289,5 +293,7 @@ const MSG = {
     err_phase_dist: "Combining TASK phases with DISTRIBUTION is not yet supported.",
     err_int_domain: "The INT operator needs a distribution domain (DISTRIBUTION). E.g.: INT(T, Axial).",
     err_units: "Unit mismatch in equation “{eq}”: {dims}.",
+    err_for_bounds: "Invalid FOR-loop bounds (constant numeric values required).",
+    err_for_nested: "Nested FOR loops are not yet supported.",
   },
 };

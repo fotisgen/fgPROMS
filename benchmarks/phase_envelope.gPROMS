@@ -1,0 +1,25 @@
+# ============================================================
+#  fgPROMS benchmark: phase envelope (bubble/dew curves)
+#  n-Butane & Propane mixture z = [0.4, 0.6] — bubble and dew
+#  temperatures over 20 pressures from 2 to 10 bar, built with
+#  FOR loops.
+#  Verified in the tests against direct CoolProp calls; the
+#  x-y plot tab can draw Tb vs P and Td vs P.
+# ============================================================
+MODEL Envelope
+  PARAMETER
+    N AS REAL DEFAULT 20
+  VARIABLE
+    z  AS ARRAY(2) OF REAL
+    P  AS ARRAY(20) OF REAL DEFAULT 5.0E5
+    Tb AS ARRAY(20) OF REAL DEFAULT 300.0
+    Td AS ARRAY(20) OF REAL DEFAULT 300.0
+  EQUATION
+    z(1) + z(2) = 1 ;
+    z(2) = 0.6 ;
+    FOR i := 1 TO 20 DO
+      P(i) = 2.0E5 + (i - 1) * (8.0E5 / (N - 1)) ;
+      Tb(i) = TBUBBLE('n-Butane&Propane', z, P(i)) ;
+      Td(i) = TDEW('n-Butane&Propane', z, P(i)) ;
+    END
+END

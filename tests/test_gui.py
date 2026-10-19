@@ -167,3 +167,17 @@ def test_csv_export_download(page):
         page.click("#tab-results #btnCsv")
     download = dl_info.value
     assert download.suggested_filename.endswith(".csv")
+
+
+def test_xy_plot_for_arrays(page):
+    """Array results (phase envelope) offer an x-y plot instead of time
+    series."""
+    page.select_option("#exampleSel", "phase_envelope.gPROMS")
+    _run(page)
+    page.click("[data-tab=plots]")
+    page.wait_for_selector("#tab-plots #plotArea svg", timeout=60000)
+    # at least one trace drawn (Tb by default)
+    traces = page.locator("#tab-plots #plotArea .scatterlayer .trace").count()
+    assert traces >= 1
+    # the X selector exists and offers p among its options
+    assert page.locator("#xyX option[value='p']").count() == 1
