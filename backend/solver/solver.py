@@ -14,9 +14,10 @@ import numpy as np
 from scipy.optimize import root, minimize
 
 from ..parser.gproms_parser import (
-    Num, Var, Deriv, UnOp, BinOp, Func, IfExpr,
+    Num, Str, Var, Deriv, UnOp, BinOp, Func, IfExpr,
     EqEquation, IfEquation, Model,
 )
+from ..properties import PROP_FUNCS, make_prop_call
 from .jacobian import build_jacobian, build_gradient, jacobian_is_available
 
 # --------------------------------------------------------------------------
@@ -130,7 +131,11 @@ def make_eval(node) -> object:
         else:
             fn = lambda env: 0.0
     elif isinstance(node, Func):
-        if node.name in _UNARY_FUNCS and len(node.args) == 1:
+        if node.name in PROP_FUNCS and node.args and isinstance(node.args[0], Str):
+            fluid = node.args[0].value
+            arg_fns = [make_eval(a) for a in node.args[1:]]
+            fn = make_prop_call(node.name, fluid, arg_fns)
+        elif node.name in _UNARY_FUNCS and len(node.args) == 1:
             f = make_eval(node.args[0])
             u = _UNARY_FUNCS[node.name]
             fn = lambda env, _f=f, _u=u: _u(_f(env))
@@ -301,9 +306,18 @@ def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, floa
             opts = {"maxfev": 4000} if m == "hybr" else {"maxiter": 4000}
             cand = root(fun, x0, method=m, options=opts)
             if cand.success:
-                sol = cand
-                method = m
-                break
+                # verify the residual actually went to zero (guards against
+                # "successful" convergence to a flat NaN-penalised function)
+                env_c = dict(base)
+                if time_var:
+                    env_c[time_var] = t
+                for n, v in zip(names, cand.x):
+                    env_c[n] = float(v)
+                rc, _ = residuals(compiled, env_c)
+                if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                    sol = cand
+                    method = m
+                    break
         except Exception:
             continue
 

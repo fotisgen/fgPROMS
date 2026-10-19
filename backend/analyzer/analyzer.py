@@ -15,6 +15,7 @@ from ..parser.gproms_parser import (
     Model, Num, Var, Deriv, UnOp, BinOp, Func, IfExpr,
     EqEquation, IfEquation, expr_str,
 )
+from ..properties import PROP_FUNCS, COOLPROP_AVAILABLE
 from ..solver.solver import make_eval, SUPPORTED_FUNCS
 
 
@@ -266,11 +267,18 @@ def analyze(model: Model) -> dict:
         messages.append({"level": "error", "code": "err_no_equations", "args": {}})
         blocked = True
 
-    unsupported = sorted(f for f in funcs_used if f not in SUPPORTED_FUNCS)
+    unsupported = sorted(f for f in funcs_used
+                         if f not in SUPPORTED_FUNCS and f not in PROP_FUNCS)
     for f in unsupported:
         messages.append({"level": "error", "code": "err_unsupported_func",
                          "args": {"name": f}})
     if unsupported:
+        blocked = True
+
+    prop_used = sorted(f for f in funcs_used if f in PROP_FUNCS)
+    if prop_used and not COOLPROP_AVAILABLE:
+        messages.append({"level": "error", "code": "err_coolprop_missing",
+                         "args": {"name": prop_used[0]}})
         blocked = True
 
     if is_optimization and is_dynamic:

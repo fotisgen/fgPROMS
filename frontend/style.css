@@ -134,6 +134,7 @@ main {
 .cm-builtin { color: var(--purple); }
 .cm-number { color: var(--yellow); }
 .cm-comment { color: #5b6b85; font-style: italic; }
+.cm-string { color: #a5d6a7; }
 .cm-variable { color: #dbe4f0; }
 .cm-variable-2 { color: #f472b6; }
 .cm-operator { color: #94a3b8; }

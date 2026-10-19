@@ -1,0 +1,22 @@
+# ============================================================
+#  fgPROMS benchmark: water heater (CoolProp properties)
+#  Liquid water heated from 25 C to 80 C at 1 bar.
+#  Reference: cp(298.15 K, 1e5 Pa) ~ 4181 J/kg/K (CoolProp),
+#             literature value ~ 4180 J/kg/K.
+#  Units: SI (K, Pa) — CoolProp convention.
+# ============================================================
+MODEL WaterHeater
+  PARAMETER
+    m    AS REAL DEFAULT 1.0      # mass flow, kg/s
+    Tin  AS REAL DEFAULT 298.15   # inlet temperature, K
+    Tout AS REAL DEFAULT 353.15   # outlet temperature, K
+    P    AS REAL DEFAULT 1.0E5    # pressure, Pa
+  VARIABLE
+    CPin  AS REAL
+    CPout AS REAL
+    Q     AS REAL
+  EQUATION
+    CPin  = CP('Water', Tin, P) ;
+    CPout = CP('Water', Tout, P) ;
+    Q = m * (CPout * Tout - CPin * Tin) ;
+END

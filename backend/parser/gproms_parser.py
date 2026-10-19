@@ -77,6 +77,16 @@ def tokenize(text: str) -> List[Token]:
             while i < n and text[i] != "\n":
                 i += 1
             continue
+        if c in "\"'":
+            quote = c
+            j = i + 1
+            while j < n and text[j] != quote:
+                j += 1
+            if j >= n:
+                raise ParseError("Unterminated string literal", line, col)
+            tokens.append(Token("STRING", text[i + 1:j], line, col))
+            advance(j - i + 1)
+            continue
         if c.isdigit() or (c == "." and i + 1 < n and text[i + 1].isdigit()):
             j = i
             while j < n and text[j].isdigit():
@@ -132,6 +142,11 @@ class Node:
 @dataclass
 class Num(Node):
     v: float
+
+
+@dataclass
+class Str(Node):
+    value: str
 
 
 @dataclass
@@ -280,6 +295,8 @@ def expr_str(n: Node, outer: float = 0.0) -> str:
     if isinstance(n, Num):
         s = _num_str(n.v)
         return f"({s})" if n.v < 0 and outer < 7 else s
+    if isinstance(n, Str):
+        return f"'{n.value}'"
     if isinstance(n, Var):
         return n.name
     if isinstance(n, Deriv):
@@ -597,6 +614,9 @@ class Parser:
                 return Num(float(t.value))
             except ValueError:
                 raise ParseError(f"Bad number '{t.value}'", t.line, t.col)
+        if t.kind == "STRING":
+            self.next()
+            return Str(t.value)
         if t.kind == "DERIV":
             self.next()
             name = self.expect_ident()

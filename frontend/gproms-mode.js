@@ -13,6 +13,7 @@ CodeMirror.defineMode("gproms", function () {
     token: function (stream) {
       if (stream.eatSpace()) return null;
       if (stream.match(/^#.*/)) return "comment";
+      if (stream.match(/^'[^']*'|^"[^"]*"/)) return "string";
       if (stream.match(/^\$[A-Za-z_\u0370-\u03ff]/)) return "variable-2";
       if (stream.match(/^[0-9]*\.?[0-9]+([eE][+-]?[0-9]+)?/)) return "number";
       if (stream.match(/^[A-Za-z_\u0370-\u03ff][A-Za-z0-9_\u0370-\u03ff]*/)) {

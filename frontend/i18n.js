@@ -177,6 +177,7 @@ const MSG = {
     optimize_failed: "Η βελτιστοποίηση απέτυχε: {detail}",
     warn_bounds_invalid: "Μη έγκυρα όρια για «{name}» — αγνοήθηκαν.",
     err_opt_dynamic: "Η βελτιστοποίηση με παραγώγους ($) δεν υποστηρίζεται ακόμη.",
+    err_coolprop_missing: "Η συνάρτηση ιδιοτήτων «{name}» απαιτεί το πακέτο CoolProp. Εγκατέστησέ το (pip install coolprop) ή ξανατρέξε το run.bat.",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -211,5 +212,6 @@ const MSG = {
     optimize_failed: "Optimization failed: {detail}",
     warn_bounds_invalid: "Invalid bounds for “{name}” — ignored.",
     err_opt_dynamic: "Optimization with derivatives ($) is not yet supported.",
+    err_coolprop_missing: "Property function “{name}” requires the CoolProp package. Install it (pip install coolprop) or re-run run.bat.",
   },
 };
