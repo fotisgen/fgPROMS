@@ -166,9 +166,12 @@ def make_eval(node) -> object:
             fn = lambda env: 0.0
     elif isinstance(node, Indexed):
         base = node.name.lower()
-        idx_fn = make_eval(node.index)
-        fn = lambda env, _b=base, _f=idx_fn: \
-            env.get(f"{_b}({int(round(_f(env)))})", 0.0)
+        idx_fns = [make_eval(i) for i in node.indices]
+
+        def fn(env, _b=base, _fs=idx_fns):
+            key = (_b + "("
+                   + ",".join(str(int(round(f(env)))) for f in _fs) + ")")
+            return env.get(key, 0.0)
     elif isinstance(node, IfExpr):
         c = make_eval(node.cond)
         a = make_eval(node.then)

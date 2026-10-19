@@ -152,7 +152,7 @@ class Str(Node):
 @dataclass
 class Indexed(Node):
     name: str                 # e.g. 'z'
-    index: Node               # e.g. Num(1) or Var('i')
+    indices: List[Node]       # e.g. [Num(1)] or [Var('i'), Var('j')]
 
 
 @dataclass
@@ -363,7 +363,7 @@ def expr_str(n: Node, outer: float = 0.0) -> str:
     if isinstance(n, Str):
         return f"'{n.value}'"
     if isinstance(n, Indexed):
-        return f"{n.name}({expr_str(n.index)})"
+        return f"{n.name}({', '.join(expr_str(i) for i in n.indices)})"
     if isinstance(n, Var):
         return n.name
     if isinstance(n, Deriv):
@@ -658,12 +658,18 @@ class Parser:
             while self.at_op(".") and self.peek(1).kind == "IDENT":
                 self.next()
                 name += "." + self.next().value
-            # indexed target: z(1) := 0.4
+            # indexed target: z(1) := 0.4   or   z(1, 2) := 0.4
             if self.at_op("("):
                 self.next()
-                idx = self.parse_expr()
+                idxs: List[Node] = []
+                while True:
+                    idxs.append(self.parse_expr())
+                    if self.at_op(","):
+                        self.next()
+                        continue
+                    break
                 self.expect_op(")")
-                name += f"({expr_str(idx)})"
+                name += f"({','.join(expr_str(i) for i in idxs)})"
             t = self.peek()
             if t.kind == "OP" and t.value in (":=", "="):
                 self.next()
@@ -754,9 +760,15 @@ class Parser:
             name = name_tok.value
             if self.at_op("("):
                 self.next()
-                idx = self.parse_expr()
+                idxs: List[Node] = []
+                while True:
+                    idxs.append(self.parse_expr())
+                    if self.at_op(","):
+                        self.next()
+                        continue
+                    break
                 self.expect_op(")")
-                name += f"({expr_str(idx)})"
+                name += f"({','.join(expr_str(i) for i in idxs)})"
             self.expect_op(":")
             lo = self.parse_expr()
             self.expect_op(":")
@@ -906,10 +918,14 @@ class Parser:
                         args.append(self.parse_expr())
                     self.expect_op(")")
                     return Func(name.upper(), args)
+                indices = [first]
+                while self.at_op(","):
+                    self.next()
+                    indices.append(self.parse_expr())
                 self.expect_op(")")
                 if "." not in name and name.upper() in FUNC_NAMES:
-                    return Func(name.upper(), [first])
-                return Indexed(name, first)
+                    return Func(name.upper(), indices)
+                return Indexed(name, indices)
             return Var(name)
         if t.kind == "OP" and t.value == "(":
             self.next()

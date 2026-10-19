@@ -48,7 +48,7 @@ def _contains_distributed(node, dist_vars: Set[str]) -> bool:
                 or _contains_distributed(node.then, dist_vars)
                 or _contains_distributed(node.els, dist_vars))
     if isinstance(node, Indexed):
-        return _contains_distributed(node.index, dist_vars)
+        return any(_contains_distributed(i, dist_vars) for i in node.indices)
     return False
 
 
@@ -77,7 +77,7 @@ def _stencil(var_name: str, k: int, domain: DomainInfo,
     dz = domain.dz
 
     def T(j: int) -> Node:
-        return Indexed(var_name, _num(j))
+        return Indexed(var_name, [_num(j)])
 
     if at_boundary is None:
         if order == 1:
@@ -101,15 +101,16 @@ def _expand_at(node, k: int, domain: DomainInfo, dist_vars: Set[str],
         return node
     if isinstance(node, Var):
         if node.name.lower() in dist_vars:
-            return Indexed(node.name, _num(k))
+            return Indexed(node.name, [_num(k)])
         return node
     if isinstance(node, Deriv):
         if node.name.lower() in dist_vars:
             return Deriv(f"{node.name}({k})")
         return node
     if isinstance(node, Indexed):
-        return Indexed(node.name, _expand_at(node.index, k, domain, dist_vars,
-                                             at_boundary))
+        return Indexed(node.name, [_expand_at(i, k, domain, dist_vars,
+                                              at_boundary)
+                                   for i in node.indices])
     if isinstance(node, UnOp):
         return UnOp(node.op, _expand_at(node.x, k, domain, dist_vars,
                                         at_boundary))

@@ -122,16 +122,23 @@ def _to_sympy(node, sym_of: Callable[[str], sp.Expr],
         raise ValueError(f"{node.name} is not differentiable")
     if isinstance(node, Indexed):
         base = node.name.lower()
-        idx_sym = _to_sympy(node.index, sym_of, arrays)
-        if isinstance(idx_sym, sp.Number):
-            return sym_of(f"{base}({int(idx_sym)})")
-        # symbolic index (SIGMA loop variable): piecewise element lookup
-        if arrays and base in arrays:
-            n = arrays[base]
-            terms = [(sym_of(f"{base}({k})"),
-                      sp.Eq(idx_sym, sp.Integer(k))) for k in range(1, n + 1)]
-            return sp.Piecewise(*terms, (sp.Integer(0), True))
-        raise ValueError("symbolic index outside SIGMA")
+        idxs = [_to_sympy(i, sym_of, arrays) for i in node.indices]
+
+        def lookup(d, acc):
+            if d == len(idxs):
+                return sym_of(f"{base}({','.join(acc)})")
+            s = idxs[d]
+            if isinstance(s, sp.Number):
+                return lookup(d + 1, acc + [str(int(s))])
+            if arrays and base in arrays and d < len(arrays[base]):
+                size = arrays[base][d]
+                terms = [(lookup(d + 1, acc + [str(k)]),
+                          sp.Eq(s, sp.Integer(k)))
+                         for k in range(1, size + 1)]
+                return sp.Piecewise(*terms, (sp.Integer(0), True))
+            raise ValueError("symbolic index outside SIGMA")
+
+        return lookup(0, [])
     raise ValueError(f"unsupported node {type(node).__name__}")
 
 

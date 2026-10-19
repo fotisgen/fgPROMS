@@ -27,8 +27,9 @@ def _collect(node, vars_out: Set[str], derivs_out: Set[str]) -> None:
     elif isinstance(node, Deriv):
         derivs_out.add(node.name.lower())
     elif isinstance(node, Indexed):
-        if isinstance(node.index, Num):
-            vars_out.add(f"{node.name.lower()}({int(node.index.v)})")
+        if all(isinstance(i, Num) for i in node.indices):
+            vars_out.add(f"{node.name.lower()}"
+                         f"({','.join(str(int(i.v)) for i in node.indices)})")
         # symbolic indices are SIGMA loop variables — not model variables
     elif isinstance(node, UnOp):
         _collect(node.x, vars_out, derivs_out)
@@ -70,16 +71,38 @@ def _collect_funcs(node, out: Set[str]) -> None:
         _collect_funcs(node.then, out)
         _collect_funcs(node.els, out)
     elif isinstance(node, Indexed):
-        _collect_funcs(node.index, out)
+        for i in node.indices:
+            _collect_funcs(i, out)
 
 
 def _expand_decl_names(name: str, type_text: str) -> List[str]:
-    """Expand ARRAY(n) declarations into n indexed scalar names z(1)..z(n)."""
-    m = re.match(r"ARRAY\s*\(\s*(\d+)\s*\)", type_text or "", re.IGNORECASE)
+    """Expand ARRAY(d1[, d2, ...]) declarations into indexed scalar names:
+    z(1,1), z(1,2), ... — row-major, indices from 1."""
+    m = re.match(r"ARRAY\s*\(\s*([\d,\s]+)\s*\)", type_text or "",
+                 re.IGNORECASE)
     if m:
-        n = int(m.group(1))
-        return [f"{name}({k})" for k in range(1, n + 1)]
+        dims = [int(x) for x in re.findall(r"\d+", m.group(1))]
+        out: List[str] = []
+        total = 1
+        for d in dims:
+            total *= d
+        for flat in range(total):
+            idxs = []
+            rem = flat
+            for d in reversed(dims):
+                idxs.insert(0, (rem % d) + 1)
+                rem //= d
+            out.append(f"{name}({','.join(str(i) for i in idxs)})")
+        return out
     return [name]
+
+
+def _array_dims(type_text: str) -> Optional[tuple]:
+    m = re.match(r"ARRAY\s*\(\s*([\d,\s]+)\s*\)", type_text or "",
+                 re.IGNORECASE)
+    if m:
+        return tuple(int(x) for x in re.findall(r"\d+", m.group(1)))
+    return None
 
 
 def _eval_const(node, env: Dict[str, float]) -> Optional[float]:
@@ -113,10 +136,9 @@ def analyze(model: Model) -> dict:
 
     for d in model.parameters:
         for nm in d.names:
-            m_arr = re.match(r"ARRAY\s*\(\s*(\d+)\s*\)", d.type_text or "",
-                             re.IGNORECASE)
-            if m_arr:
-                array_sizes[nm.lower()] = int(m_arr.group(1))
+            dims = _array_dims(d.type_text)
+            if dims:
+                array_sizes[nm.lower()] = dims
             for exp in _expand_decl_names(nm, d.type_text):
                 key = exp.lower()
                 if key in seen:
@@ -137,10 +159,9 @@ def analyze(model: Model) -> dict:
                                    "default_node": d.default, "line": d.line,
                                    "domain": m_dist.group(1).lower()})
                 continue
-            m_arr = re.match(r"ARRAY\s*\(\s*(\d+)\s*\)", d.type_text or "",
-                             re.IGNORECASE)
+            m_arr = _array_dims(d.type_text)
             if m_arr:
-                array_sizes[nm.lower()] = int(m_arr.group(1))
+                array_sizes[nm.lower()] = m_arr
             for exp in _expand_decl_names(nm, d.type_text):
                 key = exp.lower()
                 if key in seen:
@@ -208,7 +229,7 @@ def analyze(model: Model) -> dict:
                                           "domain": dv["domain"]}})
                 blocked = True
                 continue
-            array_sizes[dv["lower"]] = dom.points
+            array_sizes[dv["lower"]] = (dom.points,)
             for k in range(1, dom.points + 1):
                 key = f"{dv['lower']}({k})"
                 if key in seen:
@@ -327,7 +348,8 @@ def analyze(model: Model) -> dict:
     def scan_indexed(node):
         if isinstance(node, Indexed):
             indexed_bases.add(node.name.lower())
-            scan_indexed(node.index)
+            for i in node.indices:
+                scan_indexed(i)
         elif isinstance(node, UnOp):
             scan_indexed(node.x)
         elif isinstance(node, BinOp):

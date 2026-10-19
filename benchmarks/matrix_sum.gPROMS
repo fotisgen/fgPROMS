@@ -1,0 +1,20 @@
+# ============================================================
+#  fgPROMS benchmark: 2D array sum (multi-dimensional SIGMA)
+#  A is a 3x4 matrix of the numbers 1..12:
+#    s   = sum of all elements   = 78
+#    avg = s / 12                = 6.5
+# ============================================================
+MODEL MatrixSum
+  PARAMETER
+    A AS ARRAY(3, 4) OF REAL
+  VARIABLE
+    s   AS REAL
+    avg AS REAL
+  EQUATION
+    s = SIGMA(SIGMA(A(i, j), j, 1, 4), i, 1, 3) ;
+    avg = s / 12 ;
+  SET
+    A(1,1) := 1 ;  A(1,2) := 2 ;  A(1,3) := 3 ;  A(1,4) := 4 ;
+    A(2,1) := 5 ;  A(2,2) := 6 ;  A(2,3) := 7 ;  A(2,4) := 8 ;
+    A(3,1) := 9 ;  A(3,2) := 10 ; A(3,3) := 11 ; A(3,4) := 12 ;
+END

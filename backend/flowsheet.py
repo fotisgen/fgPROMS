@@ -58,7 +58,8 @@ def _rewrite(node, prefix: str):
     if isinstance(node, Func):
         return Func(node.name, [_rewrite(a, prefix) for a in node.args])
     if isinstance(node, Indexed):
-        return Indexed(prefix + node.name, _rewrite(node.index, prefix))
+        return Indexed(prefix + node.name,
+                       [_rewrite(i, prefix) for i in node.indices])
     if isinstance(node, IfExpr):
         return IfExpr(_rewrite(node.cond, prefix), _rewrite(node.then, prefix),
                       _rewrite(node.els, prefix))
@@ -262,8 +263,9 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
         elif isinstance(node, Deriv):
             derivs_out.add(node.name.lower())
         elif isinstance(node, Indexed):
-            if isinstance(node.index, Num):
-                vars_out.add(f"{node.name.lower()}({int(node.index.v)})")
+            if all(isinstance(i, Num) for i in node.indices):
+                vars_out.add(f"{node.name.lower()}"
+                             f"({','.join(str(int(i.v)) for i in node.indices)})")
         elif isinstance(node, UnOp):
             collect(node.x, vars_out, derivs_out)
         elif isinstance(node, BinOp):
