@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .parser.gproms_parser import parse_model, ParseError
 from .analyzer.analyzer import analyze
-from .solver.solver import solve_steady, solve_dynamic
+from .solver.solver import solve_steady, solve_dynamic, solve_optimize, make_eval
 
 
 def _error(code: str, args: dict) -> dict:
@@ -31,6 +31,37 @@ def run_model(code: str) -> dict:
     if info["blocked"]:
         return {"ok": True, "messages": messages, "model": info["model"],
                 "results": None, "timeSeries": None}
+
+    # ---- optimization ------------------------------------------------------
+    if info["_is_optimization"]:
+        if info["_dof"] == 0:
+            # degenerate case: system fully determined -> solve, then
+            # evaluate the objective at the solution point
+            res = solve_steady(model, info)
+            messages += res["messages"]
+            obj_value = None
+            if res.get("values"):
+                env = dict(info["_fixed_values"])
+                env.update(res["values"])
+                obj_value = float(make_eval(model.objective.expr)(env))
+            results = {"mode": "optimization", "success": res["success"],
+                       "method": res.get("method"),
+                       "values": res.get("values"),
+                       "residuals": res.get("residuals"),
+                       "maxResidual": res.get("maxResidual"),
+                       "objective": {"kind": model.objective.kind,
+                                     "value": obj_value}}
+        else:
+            res = solve_optimize(model, info)
+            messages += res["messages"]
+            results = {"mode": "optimization", "success": res["success"],
+                       "method": res.get("method"),
+                       "values": res.get("values"),
+                       "residuals": res.get("residuals"),
+                       "maxResidual": res.get("maxResidual"),
+                       "objective": res.get("objective")}
+        return {"ok": True, "messages": messages, "model": info["model"],
+                "results": results, "timeSeries": None}
 
     dynamic = info["model"]["isDynamic"] and info["_schedule"] is not None
 

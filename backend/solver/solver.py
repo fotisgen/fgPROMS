@@ -11,13 +11,13 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from scipy.optimize import root
+from scipy.optimize import root, minimize
 
 from ..parser.gproms_parser import (
     Num, Var, Deriv, UnOp, BinOp, Func, IfExpr,
     EqEquation, IfEquation, Model,
 )
-from .jacobian import build_jacobian, jacobian_is_available
+from .jacobian import build_jacobian, build_gradient, jacobian_is_available
 
 # --------------------------------------------------------------------------
 # Safe math wrappers (keep Newton iterations inside the domain)
@@ -478,3 +478,94 @@ def solve_dynamic(model: Model, info: dict) -> dict:
             "series": {"t": times, "variables": series},
             "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
             "maxResidual": maxr, "method": "implicit Euler"}
+
+
+# --------------------------------------------------------------------------
+# Optimization (scipy SLSQP) — the EQUATION section acts as the constraint
+# set, the OPTIMIZE section defines the objective, and BOUNDS (optional)
+# bound the free variables.
+# --------------------------------------------------------------------------
+def solve_optimize(model: Model, info: dict) -> dict:
+    names: List[str] = info["_unknowns"]
+    base: Dict[str, float] = dict(info["_fixed_values"])
+    guesses: Dict[str, float] = info["_initial_guess"]
+    bounds_map: Dict[str, tuple] = info["_bounds"]
+    obj_meta = info["_objective"]
+    compiled = compile_model(model)
+
+    obj_fn = make_eval(model.objective.expr)
+    sign = -1.0 if model.objective.kind == "maximize" else 1.0
+    x0 = np.array([guesses.get(n, 0.0) for n in names], dtype=float)
+
+    n_cons = 0
+    try:
+        r0, _ = residuals(compiled, {**base, **guesses})
+        n_cons = len(r0)
+    except Exception:
+        pass
+
+    def fun(x):
+        env = dict(base)
+        for n, v in zip(names, x):
+            env[n] = float(v)
+        return sign * float(obj_fn(env))
+
+    def cons(x):
+        env = dict(base)
+        for n, v in zip(names, x):
+            env[n] = float(v)
+        try:
+            r, _ = residuals(compiled, env)
+            return np.where(np.isfinite(r), r, 1e10)
+        except Exception:
+            return np.full(max(n_cons, 1), 1e10)
+
+    bounds = [(bounds_map.get(n, (None, None))) for n in names]
+    constraints = [{"type": "eq", "fun": cons}]
+    jac = None
+    try:
+        jac = build_jacobian(compiled, names, base)
+        if jac is not None and jacobian_is_available(jac, x0, names, base):
+            constraints[0]["jac"] = jac
+        else:
+            jac = None
+    except Exception:
+        jac = None
+    grad = build_gradient(model.objective.expr, names, base)
+    if grad is not None:
+        _g0, _sign0 = grad, sign
+        grad = lambda x: _sign0 * np.asarray(_g0(x), dtype=float)
+
+    try:
+        res = minimize(fun, x0, method="SLSQP", bounds=bounds,
+                       constraints=constraints, jac=grad,
+                       options={"maxiter": 1000, "ftol": 1e-12})
+    except Exception as e:
+        return {"success": False, "messages": [{"level": "error",
+                "code": "optimize_failed", "args": {"detail": str(e)}}],
+                "values": None, "objective": None, "residuals": [],
+                "maxResidual": None, "method": "SLSQP"}
+
+    values = {n: float(v) for n, v in zip(names, res.x)}
+    env = dict(base)
+    for n, v in zip(names, res.x):
+        env[n] = float(v)
+    r, ids = residuals(compiled, env)
+    maxr = max((abs(v) for v in r), default=0.0)
+    obj_value = float(obj_fn(env))
+
+    if res.success and maxr < 1e-6:
+        messages = [{"level": "info", "code": "optimize_ok",
+                     "args": {"method": "SLSQP", "obj": f"{obj_value:.8g}",
+                              "res": f"{maxr:.2e}"}}]
+        success = True
+    else:
+        detail = res.message or "no convergence"
+        messages = [{"level": "error", "code": "optimize_failed",
+                     "args": {"detail": detail}}]
+        success = False
+
+    return {"success": success, "messages": messages, "values": values,
+            "objective": {"kind": obj_meta["kind"], "value": obj_value},
+            "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
+            "maxResidual": maxr, "method": "SLSQP"}

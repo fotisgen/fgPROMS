@@ -1,0 +1,23 @@
+# ============================================================
+#  fgPROMS benchmark: CSTR design optimization
+#  Maximize the production rate  r*V  subject to the CSTR mass
+#  balance and a volume limit.
+#  Analytical: CA = CAin*Fin/(Fin + k*V)  ->  maximize V*k*CA
+#  At V = Vmax = 20:
+#    CA = 2/(1+10) = 0.181818,  obj = 20*0.5*0.181818 = 1.81818
+# ============================================================
+MODEL CSTROptimize
+  PARAMETER
+    Fin  AS REAL DEFAULT 1.0
+    CAin AS REAL DEFAULT 2.0
+    k    AS REAL DEFAULT 0.5
+  VARIABLE
+    V  AS REAL
+    CA AS REAL
+  EQUATION
+    Fin * CAin - Fin * CA - V * k * CA = 0 ;
+  BOUNDS
+    V : 0.1 : 20 ;
+  OPTIMIZE
+    MAXIMIZE V * k * CA ;
+END

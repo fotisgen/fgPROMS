@@ -170,6 +170,32 @@ def build_jacobian(compiled: list, names: List[str],
     return jac
 
 
+def build_gradient(node, names: List[str], fixed: Dict[str, float]) -> Optional[Callable]:
+    """Build grad(x) -> ndarray for an objective AST node, or None if the
+    symbolic translation is not possible."""
+    syms: Dict[str, sp.Expr] = {n: sp.Symbol(n) for n in names}
+
+    def sym_of(name: str) -> sp.Expr:
+        if name in syms:
+            return syms[name]
+        if name in fixed:
+            return sp.Float(fixed[name])
+        raise ValueError(f"unresolved name {name}")
+
+    try:
+        expr = _to_sympy(node, sym_of)
+        grad = [sp.diff(expr, syms[n]) for n in names]
+        lam = sp.lambdify([syms[n] for n in names], grad, "numpy")
+    except Exception:
+        return None
+
+    def g(x) -> np.ndarray:
+        with np.errstate(all="ignore"):
+            return np.asarray(lam(*[float(v) for v in x]), dtype=float)
+
+    return g
+
+
 def jacobian_is_available(jac: Optional[Callable], x0, names: List[str],
                           fixed: Dict[str, float]) -> bool:
     """Sanity-check that the built Jacobian evaluates to a finite square

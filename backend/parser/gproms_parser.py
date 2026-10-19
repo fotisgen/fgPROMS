@@ -40,6 +40,7 @@ class Token:
 
 SECTION_KEYWORDS = {
     "PARAMETER", "VARIABLE", "EQUATION", "INITIAL", "SCHEDULE", "SET",
+    "OPTIMIZE", "BOUNDS",
     "SELECTOR", "DISTRIBUTION_DOMAIN", "UNIT", "PROCESS", "STREAM",
     "SOLUTIONPARAMETER",
 }
@@ -48,6 +49,7 @@ RESERVED = SECTION_KEYWORDS | {
     "MODEL", "END", "DEFAULT", "IF", "THEN", "ELSE", "CASE", "SWITCH", "WHEN",
     "CONTINUE", "FOR", "TO", "STEP", "SEQUENCE", "AS", "REAL", "INTEGER",
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN",
+    "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE",
 }
 
 
@@ -212,6 +214,21 @@ class ScheduleStep:
 
 
 @dataclass
+class Objective:
+    kind: str                 # 'maximize' | 'minimize'
+    expr: Node
+    line: int
+
+
+@dataclass
+class Bound:
+    name: str
+    lo: Node
+    hi: Node
+    line: int
+
+
+@dataclass
 class Model:
     name: str
     line: int
@@ -221,6 +238,8 @@ class Model:
     initial: List[Assignment] = field(default_factory=list)
     sets: List[Assignment] = field(default_factory=list)
     schedule: List[ScheduleStep] = field(default_factory=list)
+    objective: Optional[Objective] = None
+    bounds: List[Bound] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
@@ -370,6 +389,12 @@ class Parser:
                 elif u == "SCHEDULE":
                     self.next()
                     model.schedule = self.parse_schedule()
+                elif u == "OPTIMIZE":
+                    self.next()
+                    model.objective = self.parse_objective()
+                elif u == "BOUNDS":
+                    self.next()
+                    model.bounds = self.parse_bounds()
                 elif u in SECTION_KEYWORDS:
                     raise ParseError(
                         f"Section '{u}' is not supported by fgPROMS (Phase 1)",
@@ -502,6 +527,33 @@ class Parser:
             steps.append(ScheduleStep(var.value, t0, t1, step))
         self.expect_kw("END")
         return steps
+
+    # -- objective / bounds (optimization) ----------------------------------------
+    def parse_objective(self) -> Objective:
+        t = self.peek()
+        if t.kind == "IDENT" and t.value.upper() in ("MAXIMIZE", "MINIMIZE",
+                                                     "MAXIMISE", "MINIMISE"):
+            kind = "maximize" if t.value.upper().startswith("MAX") else "minimize"
+            self.next()
+            expr = self.parse_expr()
+            if self.at_op(";"):
+                self.next()
+            return Objective(kind, expr, t.line)
+        raise ParseError("Expected MAXIMIZE or MINIMIZE", t.line, t.col)
+
+    def parse_bounds(self) -> List[Bound]:
+        bounds: List[Bound] = []
+        while (self.peek().kind == "IDENT"
+               and self.peek().value.upper() not in RESERVED):
+            name_tok = self.next()
+            self.expect_op(":")
+            lo = self.parse_expr()
+            self.expect_op(":")
+            hi = self.parse_expr()
+            if self.at_op(";"):
+                self.next()
+            bounds.append(Bound(name_tok.value, lo, hi, name_tok.line))
+        return bounds
 
     # -- expressions (precedence climbing) --------------------------------------
     def parse_expr(self, min_prec: float = 0.0) -> Node:

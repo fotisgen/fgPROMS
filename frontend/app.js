@@ -294,12 +294,14 @@ function renderModelTab(d) {
     return;
   }
   const df = m.dof;
+  const modeText = m.objective ? t("optimization")
+    : (m.isDynamic ? t("dynamic") : t("steady"));
   let html = `<h3>${t("modelName")}: ${esc(m.name)}</h3>
   <div class="cards">
     <div class="card"><div class="card-num">${df.unknowns}</div><div class="card-label">${t("unknowns")}</div></div>
     <div class="card"><div class="card-num">${df.equations}</div><div class="card-label">${t("eqCount")}</div></div>
     <div class="card ${df.dof === 0 ? "ok" : "bad"}"><div class="card-num">${df.dof}</div><div class="card-label">${t("dof")}</div></div>
-    <div class="card"><div class="card-num" style="font-size:15px">${m.isDynamic ? t("dynamic") : t("steady")}</div><div class="card-label">${t("mode")}</div></div>
+    <div class="card"><div class="card-num" style="font-size:15px">${modeText}</div><div class="card-label">${t("mode")}</div></div>
   </div>`;
 
   html += `<h3>${t("parameters")}</h3>
@@ -331,6 +333,18 @@ function renderModelTab(d) {
       : t("noSchedule")
   }</div>`;
 
+  if (m.objective) {
+    html += `<h3>${t("objectiveTitle")}</h3>
+      <div class="schedule">${t(m.objective.kind)}: <code>${esc(m.objective.text)}</code></div>`;
+  }
+  if (m.bounds && m.bounds.length) {
+    html += `<h3>${t("boundsTitle")}</h3>
+    <table class="grid"><thead><tr><th>${t("name")}</th><th>${t("lower")}</th><th>${t("upper")}</th></tr></thead><tbody>`;
+    for (const b of m.bounds)
+      html += `<tr><td>${esc(b.name)}</td><td>${fmt(b.lo)}</td><td>${fmt(b.hi)}</td></tr>`;
+    html += "</tbody></table>";
+  }
+
   el.innerHTML = html;
 }
 
@@ -342,13 +356,16 @@ function renderResultsTab(d) {
     el.innerHTML = `<div class="note">${esc(t("noResults"))}</div>`;
     return;
   }
+  const objText = r.mode === "optimization" && r.objective
+    ? ` — ${t("objectiveTitle")} (${t(r.objective.kind)}): ${fmt(r.objective.value)}`
+    : "";
   let html = `<div class="summary ${r.success ? "ok" : "bad"}">${
     r.success ? "✓ " + t("success") : "✗ " + t("failure")
   } — ${t("solver")}: ${esc(r.method || "—")}${
     r.maxResidual !== undefined && r.maxResidual !== null
       ? " · " + t("maxResidual") + ": " + fmt(r.maxResidual)
       : ""
-  }</div>`;
+  }${objText}</div>`;
 
   if (r.values) {
     html += `<h3>${t(r.mode === "dynamic" ? "finalValues" : "valuesTitle")}</h3>

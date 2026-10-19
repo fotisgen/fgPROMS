@@ -240,9 +240,26 @@ def analyze(model: Model) -> dict:
             gv = _eval_const(v["default_node"], env)
             initial_guess[key] = gv if gv is not None else 0.0
 
+    # ---- optimization: objective & bounds -----------------------------------------
+    objective = None
+    if model.objective:
+        objective = {"kind": model.objective.kind,
+                     "text": expr_str(model.objective.expr)}
+    bounds_info: Dict[str, tuple] = {}
+    for b in model.bounds:
+        key = b.name.lower()
+        lo = _eval_const(b.lo, env)
+        hi = _eval_const(b.hi, env)
+        if lo is None or hi is None or lo > hi:
+            messages.append({"level": "warn", "code": "warn_bounds_invalid",
+                             "args": {"name": b.name}})
+            continue
+        bounds_info[key] = (float(lo), float(hi))
+
     # ---- degrees of freedom & validation -----------------------------------------
     dof = len(unknowns) - eq_count
     is_dynamic = bool(derivs_used)
+    is_optimization = objective is not None
     blocked = False
 
     if not model.equations:
@@ -256,13 +273,30 @@ def analyze(model: Model) -> dict:
     if unsupported:
         blocked = True
 
-    if dof != 0:
-        messages.append({"level": "error", "code": "dof_nonzero",
-                         "args": {"u": len(unknowns), "e": eq_count, "d": dof}})
+    if is_optimization and is_dynamic:
+        messages.append({"level": "error", "code": "err_opt_dynamic", "args": {}})
         blocked = True
+
+    if dof < 0:
+        messages.append({"level": "error", "code": "err_overdetermined",
+                         "args": {"u": len(unknowns), "e": eq_count}})
+        blocked = True
+    elif dof > 0:
+        if is_optimization:
+            messages.append({"level": "info", "code": "dof_for_opt",
+                             "args": {"u": len(unknowns), "e": eq_count,
+                                      "d": dof}})
+        else:
+            messages.append({"level": "error", "code": "dof_nonzero",
+                             "args": {"u": len(unknowns), "e": eq_count,
+                                      "d": dof}})
+            blocked = True
     else:
         messages.append({"level": "info", "code": "dof_zero",
                          "args": {"u": len(unknowns), "e": eq_count}})
+        if is_optimization:
+            messages.append({"level": "info", "code": "info_trivial_opt",
+                             "args": {}})
 
     if is_dynamic and not schedule:
         messages.append({"level": "error", "code": "err_dynamic_no_schedule",
@@ -303,6 +337,10 @@ def analyze(model: Model) -> dict:
         "dof": {"unknowns": len(unknowns), "equations": eq_count, "dof": dof},
         "schedule": schedule,
         "isDynamic": is_dynamic,
+        "objective": objective,
+        "bounds": [{"name": b.name, "lo": bounds_info.get(b.name.lower(), (None, None))[0],
+                    "hi": bounds_info.get(b.name.lower(), (None, None))[1]}
+                   for b in model.bounds],
     }
 
     return {
@@ -316,4 +354,8 @@ def analyze(model: Model) -> dict:
         "_initial_guess": initial_guess,
         "_schedule": schedule,
         "_has_initial": has_initial,
+        "_dof": dof,
+        "_is_optimization": is_optimization,
+        "_bounds": bounds_info,
+        "_objective": objective,
     }
