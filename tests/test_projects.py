@@ -76,10 +76,14 @@ def test_export_csv_dynamic():
     csv_text = r.json()["csv"]
     lines = csv_text.strip().split("\n")
     assert lines[0] == "t,h,c,fout"
-    assert len(lines) == 102  # header + 101 time points
+    n = len(run["timeSeries"]["t"])
+    assert len(lines) == n + 1   # header + one row per time point
     t0, h0 = lines[1].split(",")[:2]
     assert float(t0) == 0.0
     assert abs(float(h0) - 1.0) < 1e-9
+    # last row matches the final state (CSV keeps 8 significant digits)
+    t_last, h_last = lines[-1].split(",")[:2]
+    assert abs(float(h_last) - run["timeSeries"]["variables"]["h"][-1]) < 1e-6
 
 
 def test_export_empty_results():

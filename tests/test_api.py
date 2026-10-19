@@ -51,7 +51,9 @@ def test_run_dynamic_returns_series():
     assert body["results"]["mode"] == "dynamic"
     assert body["results"]["success"] is True
     assert body["timeSeries"] is not None
-    assert len(body["timeSeries"]["t"]) == 101
+    # adaptive BDF2: at least one point per SCHEDULE step (STEP 0.2 over 20)
+    assert len(body["timeSeries"]["t"]) >= 100
+    assert body["results"]["method"] == "BDF2 adaptive"
 
 
 def test_run_syntax_error():

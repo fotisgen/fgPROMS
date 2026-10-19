@@ -18,7 +18,8 @@ from ..parser.gproms_parser import (
     EqEquation, IfEquation, Model,
 )
 from ..properties import PROP_FUNCS, make_prop_call
-from .jacobian import build_jacobian, build_gradient, jacobian_is_available
+from .jacobian import (build_jacobian, build_gradient, jacobian_is_available,
+                       compile_jacobian)
 
 # --------------------------------------------------------------------------
 # Safe math wrappers (keep Newton iterations inside the domain)
@@ -370,11 +371,22 @@ def solve_steady(model: Model, info: dict) -> dict:
 
 
 # --------------------------------------------------------------------------
-# Dynamic solve (implicit Euler on the DAE)
+# Dynamic solve — BDF2 with adaptive step control.
+#
+#   * First step: implicit Euler (BDF1) — no previous point exists yet.
+#   * Later steps: variable-step BDF2, whose derivative approximation is
+#         x' ~ c1*(x - x_n) + c2*(x_n - x_{n-1}),  r = h/h_prev
+#         c1 = (2r+1)/(h(r+1)),  c2 = -r^2/(h(r+1))
+#   * Local error estimate: embedded BDF1 solution at the same step
+#     (difference estimator) — conservative and simple.
+#   * Step control: err_norm = max_i |x2-x1| / (atol + rtol*|x2|)
+#     h_new = 0.9 * h * min(2, err^-1/3); the SCHEDULE STEP acts as the
+#     maximum (and initial) step, so output has at least (t1-t0)/STEP points.
+#   * fixed_h mode (tests): constant-step BDF2, no step control.
 # --------------------------------------------------------------------------
-def solve_dynamic(model: Model, info: dict) -> dict:
+def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> dict:
     sch = info["_schedule"]
-    t0, t1, h = sch["t0"], sch["t1"], sch["step"]
+    t0, t1, h0 = sch["t0"], sch["t1"], sch["step"]
     tv = sch["var"].lower()
     states: List[str] = info["_states"]
     allv: List[str] = info["_unknowns"]
@@ -382,17 +394,29 @@ def solve_dynamic(model: Model, info: dict) -> dict:
     base: Dict[str, float] = dict(info["_fixed_values"])
     compiled = compile_model(model)
     messages: List[dict] = []
+    idx = {n: i for i, n in enumerate(allv)}
+    nv = len(allv)
 
-    steps = int(round((t1 - t0) / h))
-    if steps < 1:
+    # pre-compile the analytic Jacobian ONCE — the structure is
+    # step-independent, only the BDF coefficients change per step
+    jeval = None
+    try:
+        jeval = compile_jacobian(compiled, allv, base,
+                                 deriv_names=tuple("$" + s for s in states),
+                                 param_names=(tv,))
+    except Exception:
+        jeval = None
+
+    steps_est = int(round((t1 - t0) / h0))
+    if steps_est < 1:
         return {"success": False,
                 "messages": [{"level": "error", "code": "solve_failed",
                               "args": {"detail": "t1 must be greater than t0"}}],
                 "values": None, "series": None, "maxResidual": None, "method": None}
-    if steps > 200000:
+    if steps_est > 200000:
         return {"success": False,
                 "messages": [{"level": "error", "code": "err_too_many_steps",
-                              "args": {"n": steps}}],
+                              "args": {"n": steps_est}}],
                 "values": None, "series": None, "maxResidual": None, "method": None}
 
     prev: Dict[str, float] = {n: info["_initial_guess"].get(n, 0.0) for n in allv}
@@ -425,59 +449,142 @@ def solve_dynamic(model: Model, info: dict) -> dict:
                 prev[n] = float(v)
         messages.append({"level": "info", "code": "info_consistent_init", "args": {}})
 
+    # ---- BDF stepping -------------------------------------------------------
+    adaptive = fixed_h is None
+    h_cur = h0 if adaptive else fixed_h
+    h_max = h0 if adaptive else fixed_h
+    h_min = h_max * 1e-5
+    hprev = h_cur
+    rtol, atol = 1e-6, 1e-8
+    max_steps = 500000
+
     times = [t0]
     series = {n: [prev[n]] for n in allv}
     prevprev = dict(prev)
+    t = t0
+    first = True
+    steps_taken = 0
 
-    def step_fun(x, pprev, tstep):
+    def make_env(x, tnext, hcur, xn, xnm1, order):
         env = dict(base)
-        env[tv] = tstep
+        env[tv] = tnext
         for n, v in zip(allv, x):
             env[n] = float(v)
         for s in states:
-            env["$" + s] = (env[s] - pprev[s]) / h
+            i = idx[s]
+            if order == 2:
+                r = hcur / hprev
+                c1 = (2.0 * r + 1.0) / (hcur * (r + 1.0))
+                c2 = -(r * r) / (hcur * (r + 1.0))
+                env["$" + s] = c1 * (x[i] - xn[s]) + c2 * (xn[s] - xnm1[s])
+            else:
+                env["$" + s] = (x[i] - xn[s]) / hcur
+        return env
+
+    def bdf_res(x, tnext, hcur, xn, xnm1, order):
+        env = make_env(x, tnext, hcur, xn, xnm1, order)
         try:
             r, _ = residuals(compiled, env)
             return np.where(np.isfinite(r), r, 1e10)
         except Exception:
-            return np.full(len(allv), 1e10)
+            return np.full(nv, 1e10)
 
-    for k in range(1, steps + 1):
-        t = t0 + k * h
-        x0 = np.array([(2.0 * prev[n] - prevprev[n]) if n in states else prev[n]
+    def solve_step(tnext, hcur, xn, xnm1, order):
+        x0 = np.array([(2.0 * xn[n] - xnm1[n]) if n in states else xn[n]
                        for n in allv], dtype=float)
-        sol = None
-        method = ""
+        fun = lambda x: bdf_res(x, tnext, hcur, xn, xnm1, order)
+        jac = None
+        if jeval is not None:
+            if order == 2:
+                r = hcur / hprev
+                c1 = (2.0 * r + 1.0) / (hcur * (r + 1.0))
+            else:
+                c1 = 1.0 / hcur
+            c1_map = {"$" + s: c1 for s in states}
+
+            def jac_fn(x, _t=tnext, _c=c1_map):
+                return jeval.eval(x, {tv: _t}, _c)
+
+            jac = jac_fn
+        if jac is not None and not jacobian_is_available(jac, x0, allv, base):
+            jac = None
+        if jac is not None:
+            xs, ok_n, _ = _newton(fun, jac, x0)
+            if ok_n:
+                return True, xs
         for m in ("hybr", "lm"):
             try:
                 opts = {"maxfev": 2000} if m == "hybr" else {"maxiter": 2000}
-                cand = root(step_fun, x0, args=(prev, t), method=m, options=opts)
+                cand = root(fun, x0, method=m, options=opts)
                 if cand.success:
-                    sol = cand
-                    method = m
-                    break
+                    env_c = make_env(cand.x, tnext, hcur, xn, xnm1, order)
+                    rc, _ = residuals(compiled, env_c)
+                    if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                        return True, cand.x
             except Exception:
                 continue
-        if sol is None:
+        return False, None
+
+    while t < t1 - 1e-12:
+        tnext = t + h_cur
+        final_step = False
+        if tnext >= t1:
+            tnext = t1
+            h_cur = tnext - t
+            final_step = True
+        order = 1 if first else 2
+        ok, x2 = solve_step(tnext, h_cur, prev, prevprev, order)
+        if not ok:
+            if adaptive and h_cur > h_min * 2:
+                h_cur = max(h_min, h_cur * 0.5)
+                continue
             messages.append({"level": "error", "code": "dynamic_step_failed",
-                             "args": {"t": f"{t:.4g}", "detail": "no convergence"}})
-            env = dict(base)
-            env[tv] = t
-            for n, v in zip(allv, x0):
-                env[n] = float(v)
+                             "args": {"t": f"{t:.4g}",
+                                      "detail": "no convergence"}})
+            env = make_env(
+                np.array([prev[n] for n in allv], dtype=float),
+                t, h_cur, prev, prevprev, order)
             r, ids = residuals(compiled, env)
             maxr = max((abs(v) for v in r), default=0.0)
             return {"success": False, "messages": messages, "values": dict(prev),
                     "series": {"t": times, "variables": series},
-                    "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
-                    "maxResidual": maxr, "method": "implicit Euler"}
+                    "residuals": [{"id": i, "value": float(v)}
+                                  for i, v in zip(ids, r)],
+                    "maxResidual": maxr, "method": "BDF2 adaptive"}
 
-        new = {n: float(v) for n, v in zip(allv, sol.x)}
+        err = 0.0
+        if adaptive and order == 2:
+            ok1, x1 = solve_step(tnext, h_cur, prev, prevprev, 1)
+            if ok1:
+                # |BDF2 - BDF1| is O(h^2) while the true BDF2 LTE is O(h^3),
+                # so scale by h to obtain an O(h^3) error estimate
+                err = max(h_cur * abs(x2[i] - x1[i]) / (atol + rtol * abs(x2[i]))
+                          for i in range(nv))
+            if err > 1.0:
+                h_cur = max(h_min, h_cur * 0.9 * (1.0 / err) ** (1.0 / 3.0))
+                continue  # reject, retry from the same previous point
+            h_next = h_cur * 0.9 * min(2.0, (1.0 / max(err, 1e-12)) ** (1.0 / 3.0))
+        else:
+            h_next = h_cur
+
+        new = {n: float(v) for n, v in zip(allv, x2)}
         prevprev = dict(prev)
         prev = new
+        hprev = h_cur
+        t = tnext
+        first = False
         times.append(t)
         for n in allv:
             series[n].append(prev[n])
+        steps_taken += 1
+        if steps_taken > max_steps:
+            messages.append({"level": "error", "code": "dynamic_step_failed",
+                             "args": {"t": f"{t:.4g}",
+                                      "detail": "step limit reached"}})
+            break
+        h_cur = min(h_max, max(h_min, h_next))
+        if final_step:
+            break
 
     env = dict(base)
     env[tv] = t1
@@ -485,13 +592,16 @@ def solve_dynamic(model: Model, info: dict) -> dict:
         env[n] = prev[n]
     r, ids = residuals(compiled, env)
     maxr = max((abs(v) for v in r), default=0.0)
+    method_label = "BDF2 adaptive" if adaptive else "BDF2 fixed"
     messages.append({"level": "info", "code": "dynamic_ok",
                      "args": {"n": len(times), "t0": f"{t0:.6g}", "t1": f"{t1:.6g}",
-                              "h": f"{h:.6g}"}})
-    return {"success": True, "messages": messages, "values": dict(prev),
+                              "h": f"{h_max:.6g}"}})
+    success = steps_taken <= max_steps and all(
+        m["code"] != "dynamic_step_failed" for m in messages)
+    return {"success": success, "messages": messages, "values": dict(prev),
             "series": {"t": times, "variables": series},
             "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
-            "maxResidual": maxr, "method": "implicit Euler"}
+            "maxResidual": maxr, "method": method_label}
 
 
 # --------------------------------------------------------------------------

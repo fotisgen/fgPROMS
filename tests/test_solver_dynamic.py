@@ -15,21 +15,43 @@ def test_exp_decay_analytical(run):
     t = r["timeSeries"]["t"]
     x_exact = math.exp(-0.5 * t[-1])
     err = abs(x[-1] - x_exact) / x_exact
-    assert err < 0.025, f"implicit Euler error {err:.3%} too large"
+    assert err < 1e-3, f"BDF2 error {err:.3%} too large"
 
 
-def test_exp_decay_first_order_convergence():
+def test_bdf2_second_order_convergence():
+    """Fixed-step BDF2: halving the step should quarter the error (~4x ratio,
+    proving 2nd order — the old implicit Euler gave ~2x)."""
+    from backend.parser.gproms_parser import parse_model
+    from backend.analyzer.analyzer import analyze
+    from backend.solver.solver import solve_dynamic
+
     code = load_model("exp_decay.gPROMS", folder="benchmarks")
     errs = []
-    for step in ("0.01", "0.02"):
-        r = run_model(code.replace("STEP 0.01", f"STEP {step}"))
-        assert r["results"]["success"]
-        x = r["timeSeries"]["variables"]["x"]
-        t = r["timeSeries"]["t"]
+    for step in ("0.1", "0.05"):
+        model = parse_model(code.replace("STEP 0.01", f"STEP {step}"))
+        info = analyze(model)
+        res = solve_dynamic(model, info, fixed_h=float(step))
+        assert res["success"]
+        x = res["series"]["variables"]["x"]
+        t = res["series"]["t"]
         errs.append(abs(x[-1] - math.exp(-0.5 * t[-1])) / math.exp(-0.5 * t[-1]))
-    # halving the step should roughly halve the error (first-order method)
-    ratio = errs[1] / errs[0]
-    assert ratio > 1.4, f"expected ~2x error ratio, got {ratio:.2f}"
+    ratio = errs[0] / errs[1]
+    assert ratio > 2.5, f"expected ~4x error ratio for 2nd order, got {ratio:.2f}"
+    assert ratio < 6.5, f"error ratio {ratio:.2f} suspiciously large"
+
+
+def test_adaptive_solver_improves_coarse_schedule():
+    """Even with a coarse STEP (0.5), the adaptive BDF2 shrinks the step
+    where needed and stays accurate — the fixed implicit Euler at h=0.5
+    had ~2.7% error here."""
+    code = load_model("batch_reactor.gPROMS", folder="examples")
+    r = run_model(code.replace("STEP 0.5", "STEP 0.5"))
+    assert r["results"]["success"]
+    assert r["results"]["method"] == "BDF2 adaptive"
+    ca = r["timeSeries"]["variables"]["ca"][-1]
+    exact = (1.0 + 0.5 * 0.1 * 30.0) ** -2
+    assert abs(ca - exact) / exact < 0.005
+    assert len(r["timeSeries"]["t"]) > 60   # at least one point per 0.5
 
 
 def test_batch_reactor_analytical(run):
@@ -38,7 +60,7 @@ def test_batch_reactor_analytical(run):
     ca = r["timeSeries"]["variables"]["ca"][-1]
     # analytical: (CA0^-0.5 + 0.5*k*t)^-2  with k=0.1, n=1.5, t=30
     exact = (1.0 + 0.5 * 0.1 * 30.0) ** -2
-    assert abs(ca - exact) / exact < 0.05
+    assert abs(ca - exact) / exact < 0.005
 
 
 def test_tank_consistent_initialisation(run):
@@ -49,20 +71,22 @@ def test_tank_consistent_initialisation(run):
     assert abs(f0 - 0.4 * math.sqrt(1.0)) < 1e-9
 
 
-def test_tank_mass_balance_discrete(run):
-    """The discretised step relation must hold exactly:
-    A*(h[n+1]-h[n]) = h*(Fin - Fout[n+1])  for every step."""
+def test_tank_mass_balance_continuous(run):
+    """Continuous mass balance over the whole run (trapezoidal integral):
+    A*(h_end - h_0) = INT(Fin - Fout) dt within the solver tolerance."""
+    import numpy as np
+
     r = run("tank.gPROMS", folder="examples")
     ts = r["timeSeries"]
-    h_vals = ts["variables"]["h"]
-    f_vals = ts["variables"]["fout"]
+    h_vals = np.array(ts["variables"]["h"])
+    f_vals = np.array(ts["variables"]["fout"])
+    t_vals = np.array(ts["t"])
     params = {p["name"]: p["value"] for p in r["model"]["parameters"]}
     A, Fin = params["A"], params["Fin"]
-    h = ts["t"][1] - ts["t"][0]
-    for n in range(len(h_vals) - 1):
-        lhs = A * (h_vals[n + 1] - h_vals[n])
-        rhs = h * (Fin - f_vals[n + 1])
-        assert abs(lhs - rhs) < 1e-6 * max(1.0, abs(rhs))
+    dt = np.diff(t_vals)
+    integ = float(np.sum(0.5 * ((Fin - f_vals[:-1]) + (Fin - f_vals[1:])) * dt))
+    lhs = A * (h_vals[-1] - h_vals[0])
+    assert abs(lhs - integ) < 1e-3 * max(1.0, abs(integ))
 
 
 def test_tank_level_rises_physically(run):
@@ -73,9 +97,8 @@ def test_tank_level_rises_physically(run):
 
 
 def test_van_der_pol_vs_scipy(run):
-    """Implicit Euler accumulates phase error on this oscillator (expected for
-    a first-order method), so we compare the whole trajectory via mean
-    absolute error instead of a single time point."""
+    """BDF2 with adaptive steps keeps phase error small; compare the whole
+    trajectory via mean absolute error against a tight RK45 reference."""
     import numpy as np
 
     r = run("van_der_pol.gPROMS", folder="benchmarks")
@@ -93,9 +116,8 @@ def test_van_der_pol_vs_scipy(run):
     ref_y = ref.sol(t)[1]
     mae_x = float(np.mean(np.abs(np.array(ts["variables"]["x"]) - ref_x)))
     mae_y = float(np.mean(np.abs(np.array(ts["variables"]["y"]) - ref_y)))
-    # amplitude of the limit cycle is ~2; 0.15 is ~7% of it
-    assert mae_x < 0.15, f"x MAE {mae_x:.3f} too large"
-    assert mae_y < 0.30, f"y MAE {mae_y:.3f} too large"
+    assert mae_x < 0.005, f"x MAE {mae_x:.3f} too large"
+    assert mae_y < 0.01, f"y MAE {mae_y:.3f} too large"
 
 
 def test_van_der_pol_stays_bounded(run):
