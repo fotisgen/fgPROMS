@@ -131,6 +131,12 @@ AST → Pyomo + Ipopt (binaries μέσω `idaes get-extensions`, βλ. REPOS_REP
   πολυδιάστατοι πίνακες, φάσεις batch, γεγονότα (WHEN), STREAM, INT
 ✓ M23     (ολοκληρώθηκε):  2D κατανεμημένα (Axial × Radial)
 ✓ M24     (ολοκληρώθηκε):  CSV import + tutorials
+✓ M25     (ολοκληρώθηκε):  σύνθεση ως μεταβλητή (AbstractState HEOS)
+✓ M26     (ολοκληρώθηκε):  αραιοί Jacobians (21×21 σε 6.5s αντί 50s)
+✓ M27     (ολοκληρώθηκε):  έλεγχος μονάδων (διαστατική ανάλυση)
+✓ M28     (ολοκληρώθηκε):  FlashDrum μονάδα + Maxwell benchmark
+✓ M29     (ολοκληρώθηκε):  FOR βρόχοι + φάκελος φάσεων + x-y plots
+✓ M30     (ολοκληρώθηκε):  MCP server (Model Context Protocol)
 ⏸ M22     (αναβλήθηκε):   Pyomo+Ipopt backend — το `idaes get-extensions`
   αποτυγχάνει στο παρόν δίκτυο (SSL interception). Το SLSQP παραμένει και
   επαρκεί για τα εκπαιδευτικά NLP· το βήμα τεκμηριώνεται για μελλοντική

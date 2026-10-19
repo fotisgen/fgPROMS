@@ -67,6 +67,11 @@ END
 | **Εκτίμηση παραμέτρων**: `DATA` (+ `FROM FILE` CSV), `ESTIMATE`, ελάχιστα τετράγωνα | ✅ |
 | **Φάσεις batch**: `TASK`/`PHASE`, `WITH phase`, `END WHEN` γεγονότα (bisection) | ✅ |
 | **Ρεύματα**: `STREAM S1 AS MATERIAL('fluid')` με ιδιότητες H/CP/RHO | ✅ |
+| **Σύνθεση ως μεταβλητή**: `CP('A&B', z, T, P)` (CoolProp HEOS) | ✅ |
+| **Βρόχοι εξισώσεων**: `FOR i := 1 TO N DO … END` | ✅ |
+| **Έλεγχος μονάδων**: `T AS Temperature`, διαστατική ανάλυση κάθε εξίσωσης | ✅ |
+| **Αραιοί Jacobians**: μεγάλα πλέγματα 2D (21×21+) | ✅ |
+| **MCP server**: το fgPROMS καλείται από AI assistants (Model Context Protocol) | ✅ |
 | **Ιδιότητες**: μίγματα CoolProp `'n-Butane[0.4]&Propane[0.6]'`, `Q`, bubble/dew, `U`, `G` | ✅ |
 | **Βιβλιοθήκη μονάδων**: `library/` (Heater, Pump, Mixer, Splitter, Flash) | ✅ |
 | **Projects**: αποθήκευση/φόρτωση αρχείων στον φάκελο `projects/` | ✅ |
