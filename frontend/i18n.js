@@ -226,6 +226,7 @@ const MSG = {
     warn_phase_unused: "Η φάση «{phase}» του TASK δεν χρησιμοποιείται στο SCHEDULE.",
     err_phase_dist: "Ο συνδυασμός TASK φάσεων με DISTRIBUTION δεν υποστηρίζεται ακόμη.",
     err_int_domain: "Ο τελεστής INT χρειάζεται κατανεμημένο τομέα (DISTRIBUTION). Π.χ.: INT(T, Axial).",
+    err_units: "Ασυμβατότητα μονάδων στην εξίσωση «{eq}»: {dims}.",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -287,5 +288,6 @@ const MSG = {
     warn_phase_unused: "TASK phase “{phase}” is not used in the SCHEDULE.",
     err_phase_dist: "Combining TASK phases with DISTRIBUTION is not yet supported.",
     err_int_domain: "The INT operator needs a distribution domain (DISTRIBUTION). E.g.: INT(T, Axial).",
+    err_units: "Unit mismatch in equation “{eq}”: {dims}.",
   },
 };

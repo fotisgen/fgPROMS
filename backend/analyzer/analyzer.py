@@ -21,6 +21,7 @@ from ..parser.gproms_parser import (
 from ..properties import PROP_FUNCS, COOLPROP_AVAILABLE
 from ..solver.solver import make_eval, SUPPORTED_FUNCS
 from ..distributed import DomainInfo, expand_equations
+from ..units import dim_of_type, check_equation, dim_str, ZERO
 
 
 def _collect(node, vars_out: Set[str], derivs_out: Set[str]) -> None:
@@ -641,6 +642,45 @@ def analyze(model: Model) -> dict:
         messages.append({"level": "error", "code": "err_int_domain",
                          "args": {}})
         blocked = True
+
+    # ---- dimensional (units) checking --------------------------------------
+    dims_of_map: Dict[str, tuple] = {}
+    for p in params:
+        d = dim_of_type(p["type"])
+        if d is not None:
+            dims_of_map[p["lower"]] = d
+    for v in variables:
+        d = dim_of_type(v["type"])
+        if d is not None:
+            dims_of_map[v["lower"]] = d
+    if any(d != ZERO for d in dims_of_map.values()):
+        def dims_of(name: str):
+            if name in dims_of_map:
+                return dims_of_map[name]
+            base = base_map.get(name)
+            return dims_of_map.get(base)
+
+        def const_eval(node):
+            return _eval_const(node, env)
+
+        def walk_units(e):
+            nonlocal blocked
+            if isinstance(e, EqEquation):
+                err = check_equation(e, dims_of, const_eval)
+                if err:
+                    messages.append({"level": "error", "code": "err_units",
+                                     "args": {"eq": _display_eq(e),
+                                              "dims": err}})
+                    blocked = True
+            else:
+                for sub in e.then_eqs + e.else_eqs:
+                    walk_units(sub)
+
+        for eq in equations:
+            walk_units(eq)
+        for ph in model.task_phases.values():
+            for eq in ph.equations:
+                walk_units(eq)
 
     # indexed access on a name that is not a declared ARRAY
     for b in sorted(indexed_bases - set(array_sizes)):
