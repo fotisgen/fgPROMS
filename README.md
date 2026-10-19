@@ -58,22 +58,22 @@ END
 | `DEFAULT` τιμές, `SET` (καθορισμός μεταβλητών) | ✅ |
 | `IF … THEN … ELSE … END` (συνθήκες σε εξισώσεις) | ✅ |
 | Δυναμικά: παράγωγοι `$x` = dx/dt, `INITIAL`, `SCHEDULE` | ✅ |
-| **Δυναμικός επιλυτής BDF2** με προσαρμοστικό βήμα (2η τάξη) | ✅ |
+| **Δυναμικός επιλυτής BDF μεταβλητής τάξης (1–5)** με προσαρμοστικό βήμα | ✅ |
 | **Βελτιστοποίηση**: `OPTIMIZE` (MAXIMIZE/MINIMIZE), `BOUNDS` — SLSQP | ✅ |
 | **Flowsheets**: `PROCESS`, `UNIT name AS Type [SET …]`, συνδέσεις `R2.x = R1.y` | ✅ |
 | **Dynamic flowsheets**: μονάδες με `$` + `SCHEDULE`/`INITIAL` στο PROCESS | ✅ |
-| **Πίνακες & αθροίσματα**: `z AS ARRAY(3)`, `z(1)`, `SIGMA(expr, i, 1, N)` | ✅ |
-| **Ιδιότητες**: `CP('Water',T,P)`, `CV`, `RHO`, `H`, `S`, `VISC`, `TC`, `PC`, `M` (CoolProp, SI) | ✅ |
+| **Πίνακες**: `ARRAY(3)`, `ARRAY(3,4)`, `z(i,j)`, `SIGMA` (και nested) | ✅ |
+| **Κατανεμημένα (PDE, 1D)**: `DISTRIBUTION`, `PARTIAL(T,Axial[,Axial])`, `BOUNDARY … AT`, μέθοδος γραμμών | ✅ |
+| **Εκτίμηση παραμέτρων**: `DATA` + `ESTIMATE`, ελάχιστα τετράγωνα (gEST-style) | ✅ |
+| **Φάσεις batch**: `TASK`/`PHASE`, `WITH phase` στο SCHEDULE, επανεκκίνηση στην αλλαγή | ✅ |
+| **Ιδιότητες**: μίγματα CoolProp `'n-Butane[0.4]&Propane[0.6]'`, `Q`, bubble/dew, `U`, `G` | ✅ |
 | **Βιβλιοθήκη μονάδων**: `library/` (Heater, Pump, Mixer, Splitter, Flash) | ✅ |
 | **Projects**: αποθήκευση/φόρτωση αρχείων στον φάκελο `projects/` | ✅ |
 | **Εξαγωγή CSV** αποτελεσμάτων | ✅ |
 | Αναλυτικά Jacobians (SymPy) + damped Newton | ✅ |
-| Τελεστές `+ - * / ^`, παρενθέσεις, σχόλια `#`, strings `'…'` | ✅ |
-| Συναρτήσεις `EXP LN LOG SQRT ABS SIN COS TAN SIGN MAX MIN SIGMA` | ✅ |
-| Steady-state (Newton/LM) + δυναμική (DAE, BDF2 adaptive) | ✅ |
-| `SELECTOR`, `DISTRIBUTION_DOMAIN`, `STREAM`, PDE | ❌ (μετά τη Φάση 2) |
+| Steady-state (Newton/LM) + δυναμική (DAE, BDF adaptive) | ✅ |
+| `SELECTOR`, `STREAM` με ιδιότητες, N-D διακριτοποίηση, βιομηχανικά πακέτα | ❌ (μελλοντικά) |
 | Ανισότητες (`>`, `<`) σε εξισώσεις | ⚠️ αγνοούνται με προειδοποίηση |
-| Φυσικές ιδιότητες χωρίς CoolProp | ⚠️ καθαρό μήνυμα σφάλματος |
 
 ## 📚 Εκπαιδευτικό υλικό
 

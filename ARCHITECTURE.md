@@ -124,18 +124,15 @@ AST → Pyomo + Ipopt (binaries μέσω `idaes get-extensions`, βλ. REPOS_REP
 
 ```
 ✓ Φάση 1  (ολοκληρώθηκε):  πυρήνας + GUI + 80 tests + benchmarks
-✓ M1      (ολοκληρώθηκε):  έρευνα repos → REPOS_REPORT.md
-✓ M2      (ολοκληρώθηκε):  ARCHITECTURE.md
-✓ M3      (ολοκληρώθηκε):  CSV export + projects
-✓ M4      (ολοκληρώθηκε):  SymPy Jacobians
-✓ M5      (ολοκληρώθηκε):  Βελτιστοποίηση (SLSQP)
-✓ M6      (ολοκληρώθηκε):  CoolProp ιδιότητες
-✓ M7      (ολοκληρώθηκε):  Flowsheets (UNIT/PROCESS)
-✓ M8      (ολοκληρώθηκε):  Playwright browser tests
-✓ M9      (ολοκληρώθηκε):  BDF2 adaptive δυναμικός επιλυτής
-✓ M10     (ολοκληρώθηκε):  βιβλιοθήκη μονάδων + tutorials
-✓ M11     (ολοκληρώθηκε):  dynamic flowsheets
-✓ M12     (ολοκληρώθηκε):  SIGMA/ARRAY πίνακες
-→ Μελλοντικά: Pyomo+Ipopt, PDE διακριτοποίηση, STREAM με ιδιότητες,
-  MCP server (ιδέα DWSIM), περισσότερα tutorials
+✓ M1–M12  (ολοκληρώθηκαν): έρευνα repos, αρχιτεκτονική, CSV/projects,
+  SymPy Jacobians, βελτιστοποίηση, CoolProp, flowsheets, browser tests,
+  BDF2, βιβλιοθήκη+tutorials, dynamic flowsheets, SIGMA/ARRAY
+✓ M13     (ολοκληρώθηκε):  μίγματα & ισορροπία φάσεων (CoolProp HEOS)
+✓ M14     (ολοκληρώθηκε):  BDF μεταβλητής τάξης (1–5)
+✓ M15     (ολοκληρώθηκε):  κατανεμημένα συστήματα (PDE, μέθοδος γραμμών)
+✓ M16     (ολοκληρώθηκε):  εκτίμηση παραμέτρων (DATA/ESTIMATE)
+✓ M17     (ολοκληρώθηκε):  πολυδιάστατοι πίνακες (ARRAY(d1,d2), nested SIGMA)
+✓ M18     (ολοκληρώθηκε):  φάσεις batch (TASK/PHASE, WITH στο SCHEDULE)
+→ Μελλοντικά: Pyomo+Ipopt για μεγάλα NLP, STREAM με ιδιότητες,
+  N-D διακριτοποίηση, MCP server (ιδέα DWSIM)
 ```
