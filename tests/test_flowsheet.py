@@ -206,7 +206,7 @@ def test_two_tanks_dynamic_flowsheet(run):
     r = run("two_tanks.gPROMS", folder="benchmarks")
     assert r["results"]["success"]
     assert r["results"]["mode"] == "dynamic"
-    assert r["results"]["method"] == "BDF2 adaptive"
+    assert r["results"]["method"] == "BDF adaptive"
     ts = r["timeSeries"]
     assert len(ts["t"]) >= 100
 

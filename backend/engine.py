@@ -40,7 +40,8 @@ def run_model(code: str) -> dict:
                        "method": res.get("method"),
                        "values": res.get("values"),
                        "residuals": res.get("residuals"),
-                       "maxResidual": res.get("maxResidual")}
+                       "maxResidual": res.get("maxResidual"),
+                       "maxOrder": res.get("maxOrder")}
             return {"ok": True, "messages": messages, "model": info["model"],
                     "results": results, "timeSeries": res.get("series")}
         res = solve_steady(info["_synth"], info["_info"])
@@ -101,7 +102,8 @@ def run_model(code: str) -> dict:
                    "method": res.get("method"),
                    "values": res.get("values"),
                    "residuals": res.get("residuals"),
-                   "maxResidual": res.get("maxResidual")}
+                   "maxResidual": res.get("maxResidual"),
+                   "maxOrder": res.get("maxOrder")}
         ts = res.get("series")
     else:
         res = solve_steady(model, info)

@@ -396,19 +396,44 @@ def solve_steady(model: Model, info: dict) -> dict:
 
 
 # --------------------------------------------------------------------------
-# Dynamic solve — BDF2 with adaptive step control.
-#
-#   * First step: implicit Euler (BDF1) — no previous point exists yet.
-#   * Later steps: variable-step BDF2, whose derivative approximation is
-#         x' ~ c1*(x - x_n) + c2*(x_n - x_{n-1}),  r = h/h_prev
-#         c1 = (2r+1)/(h(r+1)),  c2 = -r^2/(h(r+1))
-#   * Local error estimate: embedded BDF1 solution at the same step
-#     (difference estimator) — conservative and simple.
-#   * Step control: err_norm = max_i |x2-x1| / (atol + rtol*|x2|)
-#     h_new = 0.9 * h * min(2, err^-1/3); the SCHEDULE STEP acts as the
-#     maximum (and initial) step, so output has at least (t1-t0)/STEP points.
-#   * fixed_h mode (tests): constant-step BDF2, no step control.
 # --------------------------------------------------------------------------
+# Dynamic solve — variable-order BDF (orders 1..5) with adaptive step control.
+#
+#   * The BDF(k) derivative on a non-uniform mesh comes from the derivative
+#     of the Lagrange interpolant through (t_{n+1}, x) and the k previous
+#     points:  x'(t_{n+1}) = c0*x + sum_{j=1..k} c[j]*x_{n+1-j}
+#   * Local error estimate: embedded BDF(k-1) solution at the same step,
+#     scaled by h (difference estimator) -> O(h^{k+1}).
+#   * Step control:  h_new = 0.9*h*min(2, err^(-1/(k+1)))  with the
+#     SCHEDULE STEP as maximum (and initial) step.
+#   * Order control: after an accepted step the solver also tries order
+#     k+1 (up to 5) and adopts it when its estimate is clearly better;
+#     rejections lower the order.
+#   * fixed_h mode (tests): constant-step BDF2, no step/order control.
+# --------------------------------------------------------------------------
+def _bdf_coeffs(t_new: float, t_hist: List[float], k: int) -> List[float]:
+    """Derivative coefficients of BDF(k) on a non-uniform mesh.
+
+    Interpolation points: t_new followed by t_hist[0..k-1] (newest first).
+    Returns c[0..k] such that  x'(t_new) = sum_j c[j] * x(points[j]).
+    """
+    pts = [t_new] + list(t_hist[:k])
+    n = len(pts)
+    c = []
+    for j in range(n):
+        tj = pts[j]
+        others = [m for m in range(n) if m != j]
+        s = 0.0
+        for m in others:
+            prod = 1.0
+            for l in others:
+                if l != m:
+                    prod *= (t_new - pts[l]) / (tj - pts[l])
+            s += (1.0 / (tj - pts[m])) * prod
+        c.append(s)
+    return c
+
+
 def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> dict:
     sch = info["_schedule"]
     t0, t1, h0 = sch["t0"], sch["t1"], sch["step"]
@@ -477,58 +502,72 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                 prev[n] = float(v)
         messages.append({"level": "info", "code": "info_consistent_init", "args": {}})
 
-    # ---- BDF stepping -------------------------------------------------------
+    # derivatives at t0 come straight from the consistent initialisation —
+    # they seed the Euler-predictor error estimate of the first BDF1 step
+    f_init: Dict[str, float] = {}
+    if init_names and sol is not None:
+        for n, v in zip(init_names, sol):
+            if n.startswith("$"):
+                f_init[n[1:]] = float(v)
+
+    # ---- variable-order BDF stepping ---------------------------------------
     adaptive = fixed_h is None
     h_cur = h0 if adaptive else fixed_h
     h_max = h0 if adaptive else fixed_h
     h_min = h_max * 1e-5
-    hprev = h_cur
     rtol, atol = 1e-6, 1e-8
     max_steps = 500000
+    max_order = 5
 
     times = [t0]
     series = {n: [prev[n]] for n in allv}
-    prevprev = dict(prev)
+    x_hist: List[Dict[str, float]] = [dict(prev)]   # newest first
+    t_hist: List[float] = [t0]
+    f_hist: List[Dict[str, float]] = [f_init]       # derivative values
     t = t0
-    first = True
+    order = 1
+    max_order_used = 1
     steps_taken = 0
 
-    def make_env(x, tnext, hcur, xn, xnm1, order):
+    def make_env(x, tnext, hcur, k):
         env = dict(base)
         env[tv] = tnext
         for n, v in zip(allv, x):
             env[n] = float(v)
-        for s in states:
-            i = idx[s]
-            if order == 2:
-                r = hcur / hprev
-                c1 = (2.0 * r + 1.0) / (hcur * (r + 1.0))
-                c2 = -(r * r) / (hcur * (r + 1.0))
-                env["$" + s] = c1 * (x[i] - xn[s]) + c2 * (xn[s] - xnm1[s])
-            else:
-                env["$" + s] = (x[i] - xn[s]) / hcur
+        if k == 1:
+            for s in states:
+                i = idx[s]
+                env["$" + s] = (x[i] - x_hist[0][s]) / hcur
+        else:
+            c = _bdf_coeffs(tnext, t_hist, k)
+            for s in states:
+                i = idx[s]
+                val = c[0] * x[i]
+                for j in range(1, k + 1):
+                    val += c[j] * x_hist[j - 1][s]
+                env["$" + s] = val
         return env
 
-    def bdf_res(x, tnext, hcur, xn, xnm1, order):
-        env = make_env(x, tnext, hcur, xn, xnm1, order)
+    def bdf_res(x, tnext, hcur, k):
+        env = make_env(x, tnext, hcur, k)
         try:
             r, _ = residuals(compiled, env)
             return np.where(np.isfinite(r), r, 1e10)
         except Exception:
             return np.full(nv, 1e10)
 
-    def solve_step(tnext, hcur, xn, xnm1, order):
-        x0 = np.array([(2.0 * xn[n] - xnm1[n]) if n in states else xn[n]
+    def solve_step(tnext, hcur, k):
+        x0 = np.array([(2.0 * x_hist[0][n] - x_hist[1][n])
+                       if (n in states and len(x_hist) > 1) else x_hist[0][n]
                        for n in allv], dtype=float)
-        fun = lambda x: bdf_res(x, tnext, hcur, xn, xnm1, order)
+        fun = lambda x: bdf_res(x, tnext, hcur, k)
         jac = None
         if jeval is not None:
-            if order == 2:
-                r = hcur / hprev
-                c1 = (2.0 * r + 1.0) / (hcur * (r + 1.0))
+            if k == 1:
+                c0 = 1.0 / hcur
             else:
-                c1 = 1.0 / hcur
-            c1_map = {"$" + s: c1 for s in states}
+                c0 = _bdf_coeffs(tnext, t_hist, k)[0]
+            c1_map = {"$" + s: c0 for s in states}
 
             def jac_fn(x, _t=tnext, _c=c1_map):
                 return jeval.eval(x, {tv: _t}, _c)
@@ -545,13 +584,17 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                 opts = {"maxfev": 2000} if m == "hybr" else {"maxiter": 2000}
                 cand = root(fun, x0, method=m, options=opts)
                 if cand.success:
-                    env_c = make_env(cand.x, tnext, hcur, xn, xnm1, order)
+                    env_c = make_env(cand.x, tnext, hcur, k)
                     rc, _ = residuals(compiled, env_c)
                     if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
                         return True, cand.x
             except Exception:
                 continue
         return False, None
+
+    def err_norm(xa, xb, hcur):
+        return max(hcur * abs(xa[i] - xb[i]) / (atol + rtol * abs(xa[i]))
+                   for i in range(nv))
 
     while t < t1 - 1e-12:
         tnext = t + h_cur
@@ -560,50 +603,93 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
             tnext = t1
             h_cur = tnext - t
             final_step = True
-        order = 1 if first else 2
-        ok, x2 = solve_step(tnext, h_cur, prev, prevprev, order)
+            if h_cur < h_min:   # vanishing final step: accept current state
+                t = t1
+                break
+        ok, xk = solve_step(tnext, h_cur, order)
         if not ok:
             if adaptive and h_cur > h_min * 2:
                 h_cur = max(h_min, h_cur * 0.5)
+                order = max(1, order - 1)
                 continue
             messages.append({"level": "error", "code": "dynamic_step_failed",
                              "args": {"t": f"{t:.4g}",
                                       "detail": "no convergence"}})
             env = make_env(
-                np.array([prev[n] for n in allv], dtype=float),
-                t, h_cur, prev, prevprev, order)
+                np.array([x_hist[0][n] for n in allv], dtype=float),
+                t, h_cur, order)
             r, ids = residuals(compiled, env)
             maxr = max((abs(v) for v in r), default=0.0)
-            return {"success": False, "messages": messages, "values": dict(prev),
+            return {"success": False, "messages": messages,
+                    "values": dict(x_hist[0]),
                     "series": {"t": times, "variables": series},
                     "residuals": [{"id": i, "value": float(v)}
                                   for i, v in zip(ids, r)],
-                    "maxResidual": maxr, "method": "BDF2 adaptive"}
+                    "maxResidual": maxr, "method": "BDF adaptive",
+                    "maxOrder": max_order_used}
 
-        err = 0.0
-        if adaptive and order == 2:
-            ok1, x1 = solve_step(tnext, h_cur, prev, prevprev, 1)
+        # ---- error estimate for the current order -------------------------
+        if order == 1 and f_hist:
+            # Euler predictor difference: |x1 - (x_n + h*f_n)|
+            err = max(
+                h_cur * abs(xk[i] - (x_hist[0][n] + h_cur * f_hist[0].get(n, 0.0)))
+                / (atol + rtol * abs(xk[i]))
+                for i, n in enumerate(allv) if n in states)
+            if not states:
+                err = 0.2
+        elif order >= 2:
+            ok1, x1 = solve_step(tnext, h_cur, order - 1)
             if ok1:
-                # |BDF2 - BDF1| is O(h^2) while the true BDF2 LTE is O(h^3),
-                # so scale by h to obtain an O(h^3) error estimate
-                err = max(h_cur * abs(x2[i] - x1[i]) / (atol + rtol * abs(x2[i]))
-                          for i in range(nv))
-            if err > 1.0:
-                h_cur = max(h_min, h_cur * 0.9 * (1.0 / err) ** (1.0 / 3.0))
-                continue  # reject, retry from the same previous point
-            h_next = h_cur * 0.9 * min(2.0, (1.0 / max(err, 1e-12)) ** (1.0 / 3.0))
+                err = err_norm(xk, x1, h_cur)
+            else:
+                err = 0.5
+        else:
+            err = 0.2
+
+        if adaptive and err > 1.0:
+            h_cur = max(h_min, h_cur * 0.9 *
+                        (1.0 / err) ** (1.0 / (order + 1)))
+            order = max(1, order - 1)
+            continue   # reject, retry from the same previous point
+
+        adopted = xk
+        # ---- try the next order (up to 5): adopt when its own estimate
+        #      meets the tolerance (it is then clearly the better solution)
+        if (adaptive and not final_step and order < max_order
+                and len(t_hist) >= order + 1):
+            okp, xp = solve_step(tnext, h_cur, order + 1)
+            if okp:
+                errp = err_norm(xp, xk, h_cur)
+                if errp < 1.0:
+                    adopted = xp
+                    order += 1
+                    err = errp
+
+        if adaptive and not final_step:
+            h_next = h_cur * 0.9 * min(
+                2.0, (1.0 / max(err, 1e-12)) ** (1.0 / (order + 1)))
         else:
             h_next = h_cur
 
-        new = {n: float(v) for n, v in zip(allv, x2)}
-        prevprev = dict(prev)
-        prev = new
-        hprev = h_cur
+        # ---- accept ---------------------------------------------------------
+        new = {n: float(v) for n, v in zip(allv, adopted)}
+        env_acc = make_env(np.array([new[n] for n in allv], dtype=float),
+                           tnext, h_cur, order)
+        f_new = {s: float(env_acc["$" + s]) for s in states}
+        x_hist.insert(0, new)
+        t_hist.insert(0, tnext)
+        f_hist.insert(0, f_new)
+        if len(x_hist) > max_order + 1:
+            x_hist.pop()
+            t_hist.pop()
+            f_hist.pop()
+        max_order_used = max(max_order_used, order)
+        if not adaptive and steps_taken >= 1:
+            order = 2          # constant-step BDF2 (tests / fallback)
         t = tnext
-        first = False
         times.append(t)
         for n in allv:
-            series[n].append(prev[n])
+            series[n].append(new[n])
         steps_taken += 1
         if steps_taken > max_steps:
             messages.append({"level": "error", "code": "dynamic_step_failed",
@@ -617,22 +703,22 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
     env = dict(base)
     env[tv] = t1
     for n in allv:
-        env[n] = prev[n]
+        env[n] = x_hist[0][n]
     r, ids = residuals(compiled, env)
     maxr = max((abs(v) for v in r), default=0.0)
-    method_label = "BDF2 adaptive" if adaptive else "BDF2 fixed"
+    method_label = "BDF adaptive" if adaptive else "BDF fixed"
     messages.append({"level": "info", "code": "dynamic_ok",
                      "args": {"n": len(times), "t0": f"{t0:.6g}", "t1": f"{t1:.6g}",
                               "h": f"{h_max:.6g}"}})
     success = steps_taken <= max_steps and all(
         m["code"] != "dynamic_step_failed" for m in messages)
-    return {"success": success, "messages": messages, "values": dict(prev),
+    return {"success": success, "messages": messages, "values": dict(x_hist[0]),
             "series": {"t": times, "variables": series},
             "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
-            "maxResidual": maxr, "method": method_label}
+            "maxResidual": maxr, "method": method_label,
+            "maxOrder": max_order_used}
 
 
-# --------------------------------------------------------------------------
 # Optimization (scipy SLSQP) — the EQUATION section acts as the constraint
 # set, the OPTIMIZE section defines the objective, and BOUNDS (optional)
 # bound the free variables.

@@ -47,7 +47,7 @@ def test_adaptive_solver_improves_coarse_schedule():
     code = load_model("batch_reactor.gPROMS", folder="examples")
     r = run_model(code.replace("STEP 0.5", "STEP 0.5"))
     assert r["results"]["success"]
-    assert r["results"]["method"] == "BDF2 adaptive"
+    assert r["results"]["method"] == "BDF adaptive"
     ca = r["timeSeries"]["variables"]["ca"][-1]
     exact = (1.0 + 0.5 * 0.1 * 30.0) ** -2
     assert abs(ca - exact) / exact < 0.005
@@ -137,3 +137,48 @@ def test_dynamic_values_are_final_state(run):
 def test_dynamic_ok_message(run):
     r = run("tank.gPROMS", folder="examples")
     assert has_msg(r, "dynamic_ok", "info")
+
+
+# ---------------- M14: variable-order BDF (1..5) ----------------
+def test_variable_order_reaches_high_order():
+    """On a very smooth problem the solver should climb to order >= 3 with
+    a coarse STEP and still reach high accuracy.
+
+    Note: the tolerance contract is per-step (rtol=1e-6); accumulated over
+    ~100 steps the global error lands around 1e-5 — three orders better
+    than the fixed-step BDF1 (~1e-2) at the same STEP."""
+    code = load_model("exp_decay.gPROMS", folder="benchmarks")
+    r = run_model(code.replace("STEP 0.01", "STEP 0.5"))
+    assert r["results"]["success"]
+    assert r["results"]["method"] == "BDF adaptive"
+    assert r["results"]["maxOrder"] >= 3, \
+        f"expected order climb, got maxOrder={r['results']['maxOrder']}"
+    x = r["timeSeries"]["variables"]["x"]
+    t = r["timeSeries"]["t"]
+    err = abs(x[-1] - math.exp(-0.5 * t[-1])) / math.exp(-0.5 * t[-1])
+    assert err < 1e-5, f"high-order BDF error {err:.3e} too large"
+
+
+def test_max_order_reported(run):
+    r = run("tank.gPROMS", folder="examples")
+    assert r["results"]["maxOrder"] >= 1
+
+
+def test_van_der_pol_still_accurate_with_variable_order(run):
+    """The variable-order solver keeps the M9 accuracy guarantees."""
+    import numpy as np
+
+    r = run("van_der_pol.gPROMS", folder="benchmarks")
+    assert r["results"]["success"]
+
+    def vdp(t, s):
+        x, y = s
+        return [y, 2.0 * (1 - x ** 2) * y - x]
+
+    ref = solve_ivp(vdp, [0, 10], [2.0, 0.0], rtol=1e-9, atol=1e-12,
+                    dense_output=True)
+    ts = r["timeSeries"]
+    t = np.array(ts["t"])
+    mae_x = float(np.mean(np.abs(
+        np.array(ts["variables"]["x"]) - ref.sol(t)[0])))
+    assert mae_x < 0.005, f"x MAE {mae_x:.3f} too large"
