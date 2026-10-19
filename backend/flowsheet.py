@@ -94,6 +94,7 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
     # ---- validate unit types -----------------------------------------------
     units_ok: List[Tuple[str, str, Model, object]] = []   # (lower, display, model, UnitDecl)
     seen_units: Set[str] = set()
+    any_dynamic = False
     for u in process.units:
         key = u.name.lower()
         if key in seen_units:
@@ -109,11 +110,28 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
             blocked = True
             continue
         if m.schedule or _has_derivatives(m):
-            messages.append({"level": "error", "code": "err_flowsheet_dynamic",
-                             "args": {"unit": u.name}})
-            blocked = True
-            continue
+            any_dynamic = True
         units_ok.append((key, u.name, m, u))
+
+    # ---- schedule ----------------------------------------------------------
+    schedule = None
+    if process.schedule:
+        st = process.schedule[0]
+        t0 = _eval(st.t0, {})
+        t1 = _eval(st.t1, {})
+        h = _eval(st.step, {}) if st.step is not None else 1.0
+        if t0 is None or t1 is None or h is None or h <= 0:
+            messages.append({"level": "error", "code": "err_bad_schedule",
+                             "args": {}})
+            blocked = True
+        else:
+            schedule = {"var": st.var, "t0": float(t0), "t1": float(t1),
+                        "step": float(h)}
+    is_dynamic = any_dynamic
+    if is_dynamic and schedule is None:
+        messages.append({"level": "error", "code": "err_flowsheet_no_schedule",
+                         "args": {}})
+        blocked = True
 
     if blocked:
         return {"messages": messages, "model": None, "blocked": True}
@@ -183,6 +201,7 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
     unknowns: List[str] = []
     guesses: Dict[str, float] = {}
     combined: List = []
+    has_initial: Set[str] = set()
 
     for key, disp, m, u in units_ok:
         prefix = disp + "."
@@ -197,6 +216,7 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
                 for a2 in m.initial:
                     if a2.name.lower() == k:
                         g = _eval(a2.value, unit_envs[key])
+                        has_initial.add(full)
                 if g is None:
                     g = _eval(d.default, unit_envs[key])
                 guesses[full] = g if g is not None else 0.0
@@ -205,6 +225,17 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
 
     for eq in process.equations:
         combined.append(eq)
+
+    # ---- process-level INITIAL (dotted names, e.g. T1.h = 2.0) -----------------
+    for a in process.initial:
+        key = a.name.lower()
+        if "." in key:
+            v = _eval(a.value, fixed_values)
+            guesses[key] = v if v is not None else 0.0
+            has_initial.add(key)
+        else:
+            messages.append({"level": "warn", "code": "warn_process_set_ignored",
+                             "args": {"name": a.name}})
 
     # ---- incidence rows & undeclared names ----------------------------------------
     rows: List[dict] = []
@@ -279,6 +310,15 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
         walk_rows(eq, 0)
     eq_count = sum(count_leaves(e) for e in combined)
 
+    # ---- dynamic states ---------------------------------------------------------
+    states = [u for u in unknowns if u in derivs_used]
+    if is_dynamic:
+        for s in states:
+            if s not in has_initial:
+                messages.append({"level": "error", "code": "err_state_no_initial",
+                                 "args": {"name": display.get(s, s)}})
+                blocked = True
+
     declared = set(unknowns) | set(fixed_values) | set(fixed)
     all_used: Set[str] = set()
     for row in rows:
@@ -310,7 +350,7 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
     for full in unknowns:
         vars_json.append({"name": display.get(full, full), "type": "",
                           "guess": guesses[full], "fixed": False,
-                          "isState": False})
+                          "isState": full in states})
     for full in sorted(fixed):
         vars_json.append({"name": display.get(full, full), "type": "",
                           "guess": fixed_values[full], "fixed": True,
@@ -325,8 +365,8 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
         "variables": vars_json,
         "equations": rows,
         "dof": {"unknowns": len(unknowns), "equations": eq_count, "dof": dof},
-        "schedule": None,
-        "isDynamic": False,
+        "schedule": schedule,
+        "isDynamic": is_dynamic,
         "objective": None,
         "bounds": [],
     }
@@ -336,6 +376,8 @@ def analyze_process(process: ProcessDef, models: Dict[str, Model]) -> dict:
         "_unknowns": unknowns,
         "_fixed_values": fixed_values,
         "_initial_guess": guesses,
+        "_states": states,
+        "_schedule": schedule,
     }
     return {"messages": messages, "model": model_json, "blocked": blocked,
             "_synth": synth, "_info": pseudo_info}

@@ -33,6 +33,16 @@ def run_model(code: str) -> dict:
         if info["blocked"]:
             return {"ok": True, "messages": messages, "model": info["model"],
                     "results": None, "timeSeries": None}
+        if info["model"]["isDynamic"]:
+            res = solve_dynamic(info["_synth"], info["_info"])
+            messages += res["messages"]
+            results = {"mode": "dynamic", "success": res["success"],
+                       "method": res.get("method"),
+                       "values": res.get("values"),
+                       "residuals": res.get("residuals"),
+                       "maxResidual": res.get("maxResidual")}
+            return {"ok": True, "messages": messages, "model": info["model"],
+                    "results": results, "timeSeries": res.get("series")}
         res = solve_steady(info["_synth"], info["_info"])
         messages += res["messages"]
         results = {"mode": "steady", "success": res["success"],

@@ -1,0 +1,41 @@
+# ============================================================
+#  fgPROMS benchmark: two tanks in series (dynamic flowsheet)
+#  Tank 1 overflows into Tank 2 — the classic cascade.
+#  Reference checks (tests):
+#    * consistent init: T2.Fout(0) = 0.4*sqrt(1) = 0.4
+#    * total mass balance: A*(h1+h2) change = INT(Fin - T2.Fout) dt
+# ============================================================
+MODEL TankUnit
+  PARAMETER
+    A  AS REAL DEFAULT 2.0     # cross section, m2
+    kv AS REAL DEFAULT 0.4     # valve constant
+    kd AS REAL DEFAULT 0.05    # decay constant, 1/s
+  VARIABLE
+    Fin  AS REAL               # inlet flow, m3/s
+    Cin  AS REAL               # inlet concentration
+    h    AS REAL               # level, m
+    C    AS REAL               # concentration
+    Fout AS REAL               # outlet flow, m3/s
+  EQUATION
+    Fout = kv * SQRT(h) ;
+    $h = (Fin - Fout) / A ;
+    $C = (Fin * Cin - Fout * C) / (A * h) - kd * C ;
+  INITIAL
+    h = 1.0 ;
+    C = 0.5 ;
+END
+
+PROCESS TwoTanks
+  UNIT
+    T1 AS TankUnit
+    T2 AS TankUnit
+  EQUATION
+    T1.Fin = 0.5 ;
+    T1.Cin = 1.0 ;
+    T2.Fin = T1.Fout ;
+    T2.Cin = T1.C ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 20 STEP 0.2
+    END
+END

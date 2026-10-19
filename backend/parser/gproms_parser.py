@@ -150,6 +150,12 @@ class Str(Node):
 
 
 @dataclass
+class Indexed(Node):
+    name: str                 # e.g. 'z'
+    index: Node               # e.g. Num(1) or Var('i')
+
+
+@dataclass
 class Var(Node):
     name: str
 
