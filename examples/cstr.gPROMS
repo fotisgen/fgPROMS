@@ -1,0 +1,19 @@
+# ============================================================
+#  fgPROMS example: CSTR — steady-state
+#  First-order reaction  A -> B  in a continuous stirred tank
+# ============================================================
+MODEL CSTR
+  PARAMETER
+    Fin  AS REAL  DEFAULT 1.0    # inlet flow, m3/h
+    CAin AS REAL  DEFAULT 2.0    # inlet concentration, kmol/m3
+    V    AS REAL  DEFAULT 10.0   # reactor volume, m3
+    k    AS REAL  DEFAULT 0.5    # rate constant, 1/h
+  VARIABLE
+    Fout AS REAL
+    CA   AS REAL
+    r    AS REAL
+  EQUATION
+    Fout = Fin ;
+    r = k * CA ;
+    Fin * CAin - Fout * CA - V * r = 0 ;
+END

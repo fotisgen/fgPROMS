@@ -1,0 +1,28 @@
+# ============================================================
+#  fgPROMS example: stirred tank — dynamic simulation (DAE)
+#  Mass balance on the liquid level h and concentration C.
+#  The '$' prefix denotes the time derivative (d/dt).
+# ============================================================
+MODEL Tank
+  PARAMETER
+    Fin AS REAL  DEFAULT 0.5    # inlet flow, m3/s
+    Cin AS REAL  DEFAULT 1.0    # inlet concentration, kmol/m3
+    A   AS REAL  DEFAULT 2.0    # cross-sectional area, m2
+    k   AS REAL  DEFAULT 0.05   # decay constant, 1/s
+  VARIABLE
+    h    AS REAL
+    C    AS REAL
+    Fout AS REAL
+  EQUATION
+    Fout = 0.4 * SQRT(h) ;
+    $h = (Fin - Fout) / A ;
+    $C = (Fin * Cin - Fout * C) / (A * h) - k * C ;
+  INITIAL
+    h = 1.0 ;
+    C = 0.5 ;
+    Fout = 0.4 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 20 STEP 0.2
+    END
+END

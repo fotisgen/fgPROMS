@@ -1,0 +1,20 @@
+# ============================================================
+#  fgPROMS benchmark: exponential decay
+#  dx/dt = -a*x   ->   x(t) = x0 * exp(-a*t)
+#  Reference: x(10) = exp(-5) = 0.0067379
+# ============================================================
+MODEL ExpDecay
+  PARAMETER
+    a  AS REAL DEFAULT 0.5    # decay constant, 1/s
+    x0 AS REAL DEFAULT 1.0    # initial value
+  VARIABLE
+    x AS REAL
+  EQUATION
+    $x = -a * x ;
+  INITIAL
+    x = x0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 10 STEP 0.01
+    END
+END

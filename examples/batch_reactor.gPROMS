@@ -1,0 +1,22 @@
+# ============================================================
+#  fgPROMS example: batch reactor — dynamic simulation (ODE)
+#  n-th order decay:  dCA/dt = -k * CA^n
+#  Analytical solution for n=1.5:
+#     CA(t) = (CA0^(-0.5) + 0.5*k*t)^(-2)
+# ============================================================
+MODEL BatchReactor
+  PARAMETER
+    k   AS REAL  DEFAULT 0.1     # rate constant
+    n   AS REAL  DEFAULT 1.5     # reaction order
+    CA0 AS REAL  DEFAULT 1.0     # initial concentration, kmol/m3
+  VARIABLE
+    CA AS REAL
+  EQUATION
+    $CA = -k * CA^n ;
+  INITIAL
+    CA = CA0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 30 STEP 0.5
+    END
+END

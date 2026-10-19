@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fgPROMS</title>
+  <link rel="stylesheet" href="/vendor/codemirror.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div class="logo" title="fgPROMS">fg<span>PROMS</span></div>
+    <select id="exampleSel" class="sel" title="Examples"></select>
+    <button id="btnOpen" class="btn" data-i18n="open">Άνοιγμα</button>
+    <button id="btnSave" class="btn" data-i18n="save">Αποθήκευση</button>
+    <div class="spacer"></div>
+    <button id="btnLang" class="btn lang">EN</button>
+    <button id="btnRun" class="btn run" data-i18n="run">Εκτέλεση</button>
+  </header>
+
+  <main>
+    <section class="editor-pane">
+      <div class="pane-title">
+        <span data-i18n="editor">Επεξεργαστής</span>
+        <span class="file-name" id="fileName">untitled.gPROMS</span>
+      </div>
+      <div class="editor-wrap">
+        <textarea id="code"></textarea>
+      </div>
+    </section>
+
+    <section class="results-pane">
+      <div class="tabs">
+        <button class="tab active" data-tab="model" data-i18n="tab_model">Μοντέλο</button>
+        <button class="tab" data-tab="results" data-i18n="tab_results">Αποτελέσματα</button>
+        <button class="tab" data-tab="plots" data-i18n="tab_plots">Γραφήματα</button>
+        <button class="tab" data-tab="messages" data-i18n="tab_messages">Μηνύματα</button>
+      </div>
+      <div class="tab-body active" id="tab-model"><div class="note"></div></div>
+      <div class="tab-body" id="tab-results"><div class="note"></div></div>
+      <div class="tab-body" id="tab-plots"><div class="note"></div></div>
+      <div class="tab-body" id="tab-messages"><div class="note"></div></div>
+    </section>
+  </main>
+
+  <footer>
+    <div id="statusBar" class="status"></div>
+    <div class="about">fgPROMS — inspired by gPROMS · independent project · not affiliated with Siemens/PSE</div>
+  </footer>
+
+  <input type="file" id="fileInput" accept=".gPROMS,.gproms,.txt,.mod" hidden>
+
+  <script src="/vendor/codemirror.min.js"></script>
+  <script src="/static/gproms-mode.js"></script>
+  <script src="/static/i18n.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

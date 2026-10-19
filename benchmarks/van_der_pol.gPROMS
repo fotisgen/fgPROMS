@@ -1,0 +1,23 @@
+# ============================================================
+#  fgPROMS benchmark: Van der Pol oscillator (classic)
+#    dx/dt = y
+#    dy/dt = mu * (1 - x^2) * y - x
+#  Reference: scipy.solve_ivp (RK45, rtol=1e-9) in the tests.
+# ============================================================
+MODEL VanDerPol
+  PARAMETER
+    mu AS REAL DEFAULT 2.0
+  VARIABLE
+    x AS REAL
+    y AS REAL
+  EQUATION
+    $y = mu * (1 - x^2) * y - x ;
+    $x = y ;
+  INITIAL
+    x = 2.0 ;
+    y = 0.0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 10 STEP 0.02
+    END
+END

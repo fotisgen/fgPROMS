@@ -1,0 +1,27 @@
+# ============================================================
+#  fgPROMS benchmark: isothermal flash (Rachford-Rice)
+#  3 components, fixed K-values:
+#    z = [0.40, 0.35, 0.25],  K = [3.0, 0.6, 0.05]
+#  Equation:  SUM_i  z_i*(K_i-1) / (1 + V*(K_i-1)) = 0
+#  V = vapour fraction. Reference solution via bisection
+#  in the test suite (V ≈ 0.1262).
+# ============================================================
+MODEL RachfordRice
+  PARAMETER
+    z1 AS REAL DEFAULT 0.40
+    z2 AS REAL DEFAULT 0.35
+    z3 AS REAL DEFAULT 0.25
+    K1 AS REAL DEFAULT 3.0
+    K2 AS REAL DEFAULT 0.6
+    K3 AS REAL DEFAULT 0.05
+  VARIABLE
+    V  AS REAL DEFAULT 0.5
+    t1 AS REAL
+    t2 AS REAL
+    t3 AS REAL
+  EQUATION
+    t1 = z1 * (K1 - 1) / (1 + V * (K1 - 1)) ;
+    t2 = z2 * (K2 - 1) / (1 + V * (K2 - 1)) ;
+    t3 = z3 * (K3 - 1) / (1 + V * (K3 - 1)) ;
+    t1 + t2 + t3 = 0 ;
+END

@@ -1,0 +1,1 @@
+"""fgPROMS analyzer package."""

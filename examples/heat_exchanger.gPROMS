@@ -1,0 +1,27 @@
+# ============================================================
+#  fgPROMS example: counter-current heat exchanger — steady-state
+#  Overall energy balances + logarithmic mean temperature
+#  difference (LMTD) design equation
+# ============================================================
+MODEL HeatExchanger
+  PARAMETER
+    U     AS REAL  DEFAULT 500    # overall heat transfer coefficient, W/m2/K
+    A     AS REAL  DEFAULT 20     # heat transfer area, m2
+    mh    AS REAL  DEFAULT 2.0    # hot stream flow, kg/s
+    mc    AS REAL  DEFAULT 3.0    # cold stream flow, kg/s
+    cph   AS REAL  DEFAULT 4200   # hot heat capacity, J/kg/K
+    cpc   AS REAL  DEFAULT 4180   # cold heat capacity, J/kg/K
+    Th_in AS REAL  DEFAULT 80     # hot inlet temperature, C
+    Tc_in AS REAL  DEFAULT 15     # cold inlet temperature, C
+  VARIABLE
+    Q      AS REAL
+    Th_out AS REAL
+    Tc_out AS REAL
+    dTlm   AS REAL
+  EQUATION
+    Q = mh * cph * (Th_in - Th_out) ;
+    Q = mc * cpc * (Tc_out - Tc_in) ;
+    dTlm = ((Th_in - Tc_out) - (Th_out - Tc_in)) /
+           LN((Th_in - Tc_out) / (Th_out - Tc_in)) ;
+    Q = U * A * dTlm ;
+END
