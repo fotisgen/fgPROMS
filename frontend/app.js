@@ -40,6 +40,7 @@ function init() {
   applyI18n();
   setStatus(t("statusReady"));
   loadExamples().then(() => loadExample("cstr.gPROMS"));
+  loadProjects();
 }
 
 function bindEvents() {
@@ -50,9 +51,14 @@ function bindEvents() {
   $("btnLang").addEventListener("click", toggleLang);
   $("btnOpen").addEventListener("click", () => $("fileInput").click());
   $("btnSave").addEventListener("click", saveFile);
+  $("btnSaveAs").addEventListener("click", saveAsProject);
+  $("btnDeleteProject").addEventListener("click", deleteProject);
   $("fileInput").addEventListener("change", openFile);
   $("exampleSel").addEventListener("change", (e) => {
     if (e.target.value) loadExample(e.target.value);
+  });
+  $("projectSel").addEventListener("change", (e) => {
+    if (e.target.value) loadProject(e.target.value);
   });
 }
 
@@ -74,6 +80,8 @@ function applyI18n() {
   document.title = "fgPROMS";
   const sel = $("exampleSel");
   if (sel.options.length) sel.options[0].textContent = t("examples");
+  const psel = $("projectSel");
+  if (psel.options.length) psel.options[0].textContent = t("projects");
 }
 
 /* ---------------- tabs ---------------- */
@@ -144,6 +152,99 @@ function saveFile() {
   a.download = currentFile || "model.gPROMS";
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+/* ---------------- projects ---------------- */
+async function loadProjects() {
+  try {
+    const res = await fetch("/api/projects");
+    const names = await res.json();
+    const sel = $("projectSel");
+    sel.innerHTML = "";
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = t("projects");
+    sel.appendChild(opt);
+    names.forEach((n) => {
+      const o = document.createElement("option");
+      o.value = n;
+      o.textContent = n;
+      sel.appendChild(o);
+    });
+  } catch (e) {
+    setStatus(t("loadErr"));
+  }
+}
+
+async function loadProject(name) {
+  try {
+    const res = await fetch("/api/projects/" + encodeURIComponent(name));
+    const data = await res.json();
+    editor.setValue(data.code);
+    currentFile = name;
+    $("fileName").textContent = name;
+    setStatus(t("statusReady"));
+  } catch (e) {
+    setStatus(t("loadErr"));
+  }
+}
+
+async function saveAsProject() {
+  const name = prompt(t("promptProjectName"), currentFile || "model.gPROMS");
+  if (!name) return;
+  try {
+    const res = await fetch("/api/projects/" + encodeURIComponent(name), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: editor.getValue() }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error("save failed");
+    currentFile = name;
+    $("fileName").textContent = name;
+    setStatus(t("savedOk") + name);
+    await loadProjects();
+  } catch (e) {
+    setStatus(t("loadErr"));
+  }
+}
+
+async function deleteProject() {
+  const name = $("projectSel").value;
+  if (!name) return;
+  if (!confirm(t("confirmDelete").replace("{name}", name))) return;
+  try {
+    await fetch("/api/projects/" + encodeURIComponent(name), { method: "DELETE" });
+    setStatus(t("deletedOk") + name);
+    await loadProjects();
+  } catch (e) {
+    setStatus(t("loadErr"));
+  }
+}
+
+/* ---------------- CSV export ---------------- */
+async function exportCsv() {
+  if (!lastRun) return;
+  try {
+    const res = await fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        results: lastRun.results,
+        timeSeries: lastRun.timeSeries,
+      }),
+    });
+    const data = await res.json();
+    const blob = new Blob([data.csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (currentFile || "model").replace(/\.gPROMS$/i, "") + ".csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setStatus(t("csvDownloaded") + a.download);
+  } catch (e) {
+    setStatus(t("loadErr"));
+  }
 }
 
 /* ---------------- run ---------------- */
@@ -267,7 +368,10 @@ function renderResultsTab(d) {
       html += `<tr><td>#${rr.id}</td><td>${fmt(rr.value)}</td></tr>`;
     html += "</tbody></table>";
   }
+  html += `<div style="margin-top:14px"><button id="btnCsv" class="btn">${t("exportCsv")}</button></div>`;
   el.innerHTML = html;
+  const btnCsv = el.querySelector("#btnCsv");
+  if (btnCsv) btnCsv.addEventListener("click", exportCsv);
 }
 
 /* ---------------- plots tab ---------------- */

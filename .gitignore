@@ -5,3 +5,6 @@ __pycache__/
 
 # Editor
 *.swp
+
+projects/*.gPROMS
+
