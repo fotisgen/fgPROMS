@@ -84,3 +84,93 @@ def test_steady_success_message_details(run):
     assert "solved_ok" in msgs
     assert msgs["solved_ok"]["level"] == "info"
     assert msgs["solved_ok"]["args"]["n"] == 3
+
+
+# ---------------- M4: analytic Jacobians (SymPy) ----------------
+def test_analytic_newton_used_for_steady_benchmarks(run):
+    cases = [("cstr.gPROMS", "examples"),
+             ("heat_exchanger.gPROMS", "examples"),
+             ("rachford_rice.gPROMS", "benchmarks")]
+    for name, folder in cases:
+        r = run(name, folder=folder)
+        assert r["results"]["success"]
+        assert r["results"]["method"].startswith("NEWTON"), \
+            f"{name}: expected analytic Newton, got {r['results']['method']}"
+
+
+def test_jacobian_matches_numerical():
+    import numpy as np
+
+    from backend.parser.gproms_parser import parse_model
+    from backend.analyzer.analyzer import analyze
+    from backend.solver.solver import compile_model, residuals
+    from backend.solver.jacobian import build_jacobian
+
+    model = parse_model(load_model("rachford_rice.gPROMS", "benchmarks"))
+    info = analyze(model)
+    compiled = compile_model(model)
+    names = info["_unknowns"]
+    base = info["_fixed_values"]
+
+    jac = build_jacobian(compiled, names, base)
+    assert jac is not None
+
+    x0 = np.array([info["_initial_guess"][n] for n in names])
+    J_an = np.asarray(jac(x0), dtype=float)
+
+    def f(x):
+        env = dict(base)
+        for n, v in zip(names, x):
+            env[n] = float(v)
+        r, _ = residuals(compiled, env)
+        return r
+
+    eps = 1e-6
+    J_num = np.zeros((len(names), len(names)))
+    for j in range(len(names)):
+        xp = x0.copy()
+        xp[j] += eps
+        xm = x0.copy()
+        xm[j] -= eps
+        J_num[:, j] = (f(xp) - f(xm)) / (2 * eps)
+
+    assert np.allclose(J_an, J_num, atol=1e-6)
+
+
+def test_nondifferentiable_function_falls_back():
+    from backend.engine import run_model
+    r = run_model("""
+MODEL M
+  VARIABLE
+    x AS REAL
+  EQUATION
+    SIGN(x) = 1 ;
+END
+""")
+    assert r["results"]["success"]
+    assert r["results"]["method"] in ("HYBR", "LM")
+
+
+def test_identical_results_with_and_without_jacobian():
+    """Results must not depend on which solver path was taken."""
+    import numpy as np
+
+    from backend.parser.gproms_parser import parse_model
+    from backend.analyzer.analyzer import analyze
+    from backend.solver.solver import compile_model, residuals, _root_solve
+
+    model = parse_model(load_model("heat_exchanger.gPROMS", "examples"))
+    info = analyze(model)
+    compiled = compile_model(model)
+    names = info["_unknowns"]
+    base = info["_fixed_values"]
+    guesses = info["_initial_guess"]
+
+    ok_a, sol_a, method_a, _ = _root_solve(names, guesses, base, compiled)
+    assert ok_a and method_a == "NEWTON"
+
+    # force the numeric path by re-solving with the jacobian disabled
+    ok_b, sol_b, method_b, _ = _root_solve(names, guesses, base, compiled,
+                                           _disable_newton=True)
+    assert ok_b
+    assert np.allclose(sol_a, sol_b, atol=1e-8)

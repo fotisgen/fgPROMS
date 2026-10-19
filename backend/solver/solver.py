@@ -17,6 +17,7 @@ from ..parser.gproms_parser import (
     Num, Var, Deriv, UnOp, BinOp, Func, IfExpr,
     EqEquation, IfEquation, Model,
 )
+from .jacobian import build_jacobian, jacobian_is_available
 
 # --------------------------------------------------------------------------
 # Safe math wrappers (keep Newton iterations inside the domain)
@@ -156,19 +157,22 @@ def make_eval(node) -> object:
 def compile_model(model: Model) -> list:
     """Compile the equation list into a flat structure of closures.
     Each entry is one of:
-      ('eq',  lhs_fn, rhs_fn, leaf_id)
+      ('eq',  lhs_fn, rhs_fn, leaf_id, lhs_node, rhs_node)
       ('ineq', leaf_id)                       # skipped by the solver
-      ('if',  cond_fn, then_list, else_list)
+      ('if',  cond_fn, then_list, else_list, cond_node)
+    The AST nodes are kept so the SymPy Jacobian builder can translate
+    the equations symbolically.
     """
     def c(eq):
         if isinstance(eq, EqEquation):
             if eq.op == "=":
-                return ("eq", make_eval(eq.lhs), make_eval(eq.rhs), eq.leaf_id)
+                return ("eq", make_eval(eq.lhs), make_eval(eq.rhs), eq.leaf_id,
+                        eq.lhs, eq.rhs)
             return ("ineq", eq.leaf_id)
         cond = make_eval(eq.cond)
         t = [c(e) for e in eq.then_eqs]
         e = [c(e) for e in eq.else_eqs]
-        return ("if", cond, t, e)
+        return ("if", cond, t, e, eq.cond)
 
     return [c(e) for e in model.equations]
 
@@ -200,11 +204,54 @@ def residuals(compiled: list, env: Dict[str, float]) -> Tuple[np.ndarray, List[i
 
 
 # --------------------------------------------------------------------------
+# Damped Newton with analytic Jacobian
+# --------------------------------------------------------------------------
+def _newton(fun, jac_fn, x0, maxiter: int = 200, tol: float = 1e-10):
+    """Damped Newton with backtracking line search on max|f|.
+    Returns (x, success, iterations)."""
+    x = np.array(x0, dtype=float)
+    f = np.asarray(fun(x), dtype=float)
+    for it in range(maxiter):
+        norm = float(np.max(np.abs(f)))
+        if norm < tol:
+            return x, True, it
+        J = jac_fn(x)
+        if J is None:
+            return x, False, it
+        J = np.asarray(J, dtype=float)
+        if J.shape != (len(x), len(x)) or not np.all(np.isfinite(J)):
+            return x, False, it
+        # row equilibration for better conditioning (the safe-domain
+        # extensions produce very large derivative entries)
+        D = np.maximum(np.max(np.abs(J), axis=1), 1e-300)
+        try:
+            dx = np.linalg.solve(J / D[:, None], -f / D)
+        except np.linalg.LinAlgError:
+            return x, False, it
+        if not np.all(np.isfinite(dx)):
+            return x, False, it
+        accepted = False
+        alpha = 1.0
+        for _ in range(40):
+            xn = x + alpha * dx
+            fn = np.asarray(fun(xn), dtype=float)
+            if np.max(np.abs(fn)) < norm:
+                x, f = xn, fn
+                accepted = True
+                break
+            alpha *= 0.5
+        if not accepted:
+            return x, False, it
+    return x, bool(np.max(np.abs(f)) < tol), maxiter
+
+
+# --------------------------------------------------------------------------
 # Generic root solving
 # --------------------------------------------------------------------------
 def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, float],
                 compiled: list, time_var: Optional[str] = None,
-                t: float = 0.0) -> Tuple[bool, Optional[np.ndarray], str, List[Tuple[int, float]]]:
+                t: float = 0.0, _disable_newton: bool = False
+                ) -> Tuple[bool, Optional[np.ndarray], str, List[Tuple[int, float]]]:
     """Solve the system for the unknowns in `names`. Returns
     (success, solution, method, residual_id_pairs)."""
     x0 = np.array([x0_map.get(n, 0.0) for n in names], dtype=float)
@@ -228,6 +275,24 @@ def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, floa
             return False, None, "dof_mismatch", []
     except Exception:
         pass
+
+    # ---- attempt analytic Newton (SymPy Jacobian) first -------------------
+    if not _disable_newton:
+        try:
+            jac = build_jacobian(compiled, names, base)
+            if jac is not None and jacobian_is_available(jac, x0, names, base):
+                x_newt, ok_newt, _ = _newton(fun, jac, x0)
+                if ok_newt:
+                    env = dict(base)
+                    if time_var:
+                        env[time_var] = t
+                    for n, v in zip(names, x_newt):
+                        env[n] = float(v)
+                    r, ids = residuals(compiled, env)
+                    pairs = [(i, float(v)) for i, v in zip(ids, r)]
+                    return True, x_newt, "NEWTON", pairs
+        except Exception:
+            pass
 
     sol = None
     method = ""
