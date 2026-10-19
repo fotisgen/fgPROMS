@@ -11,6 +11,8 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import scipy.sparse as spm
+import scipy.sparse.linalg as spla
 from scipy.optimize import root, minimize
 
 from ..parser.gproms_parser import (
@@ -263,16 +265,29 @@ def _newton(fun, jac_fn, x0, maxiter: int = 200, tol: float = 1e-10):
         J = jac_fn(x)
         if J is None:
             return x, False, it
-        J = np.asarray(J, dtype=float)
-        if J.shape != (len(x), len(x)) or not np.all(np.isfinite(J)):
-            return x, False, it
-        # row equilibration for better conditioning (the safe-domain
-        # extensions produce very large derivative entries)
-        D = np.maximum(np.max(np.abs(J), axis=1), 1e-300)
-        try:
-            dx = np.linalg.solve(J / D[:, None], -f / D)
-        except np.linalg.LinAlgError:
-            return x, False, it
+        if spm.issparse(J):
+            J = J.tocsr()
+            if J.shape != (len(x), len(x)) or not np.all(np.isfinite(J.data)):
+                return x, False, it
+            # row equilibration for better conditioning
+            D = np.maximum(np.abs(J).max(axis=1).toarray().ravel(), 1e-300)
+            A = spm.diags(1.0 / D) @ J
+            b = -f / D
+            try:
+                dx = spla.spsolve(A, b)
+            except Exception:
+                return x, False, it
+        else:
+            J = np.asarray(J, dtype=float)
+            if J.shape != (len(x), len(x)) or not np.all(np.isfinite(J)):
+                return x, False, it
+            # row equilibration for better conditioning (the safe-domain
+            # extensions produce very large derivative entries)
+            D = np.maximum(np.max(np.abs(J), axis=1), 1e-300)
+            try:
+                dx = np.linalg.solve(J / D[:, None], -f / D)
+            except np.linalg.LinAlgError:
+                return x, False, it
         if not np.all(np.isfinite(dx)):
             return x, False, it
         accepted = False

@@ -5,7 +5,7 @@ import pytest
 
 from backend.engine import run_model
 from backend.parser.gproms_parser import parse_model, Func
-from conftest import has_msg
+from conftest import has_msg, load_model
 
 
 def test_partial_parses_as_function():
@@ -344,3 +344,50 @@ END
     assert r["results"] is None
     # the conflicting corner yields 2 extra equations -> over-determined
     assert has_msg(r, "err_overdetermined", "error")
+
+
+# ---------------- M26: sparse Jacobians ----------------
+def test_2d_jacobian_is_sparse():
+    """The 2D Laplacian has a 5-point stencil — the analytic Jacobian must
+    come back as a scipy sparse matrix."""
+    import scipy.sparse as spm
+
+    from backend.parser.gproms_parser import parse_model
+    from backend.analyzer.analyzer import analyze
+    from backend.solver.solver import compile_model
+    from backend.solver.jacobian import compile_jacobian
+    from conftest import load_model
+
+    model = parse_model(load_model("conduction_2d.gPROMS", "benchmarks"))
+    info = analyze(model)
+    compiled = compile_model(model)
+    ev = compile_jacobian(compiled, info["_unknowns"], info["_fixed_values"],
+                          array_sizes=info.get("_array_sizes"))
+    assert ev is not None
+    x0 = [info["_initial_guess"][n] for n in info["_unknowns"]]
+    J = ev.eval(x0, {}, {})
+    assert spm.issparse(J)
+    n = len(info["_unknowns"])
+    # a 5-point stencil: at most ~5 nonzeros per row, far below dense
+    assert J.nnz <= 7 * n
+    assert J.nnz < 0.1 * n * n
+
+
+def test_2d_conduction_21x21_solves(run):
+    """A 21x21 grid (441 unknowns) solves correctly — feasible only because
+    the Jacobian is sparse."""
+    import time
+    code = load_model("conduction_2d.gPROMS", "benchmarks")
+    code = code.replace("Axial : Lx : 11", "Axial : Lx : 21")
+    code = code.replace("Radial : Ly : 11", "Radial : Ly : 21")
+    t0 = time.time()
+    r = run_model(code)
+    elapsed = time.time() - t0
+    assert r["results"]["success"]
+    assert r["results"]["method"].startswith("NEWTON")
+    v = r["results"]["values"]
+    assert len(v) == 441
+    for k in v:
+        assert abs(v[k] - 300.0) < 1e-7, f"{k} = {v[k]}"
+    # the whole solve (parse + sparse Newton) stays fast
+    assert elapsed < 15.0, f"21x21 solve took {elapsed:.1f}s"

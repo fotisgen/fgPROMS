@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Callable, Dict, List, Optional
 
 import numpy as np
+import scipy.sparse as spm
 import sympy as sp
 
 from ..parser.gproms_parser import Num, Str, Var, Deriv, UnOp, BinOp, Func, Indexed
@@ -143,44 +144,58 @@ def _to_sympy(node, sym_of: Callable[[str], sp.Expr],
 
 
 class JacobianEvaluator:
-    """Pre-compiled analytic Jacobian.
+    """Pre-compiled analytic Jacobian (sparse-aware).
 
     Built once per model structure; `eval` then applies the current
     linear derivative couplings (BDF coefficients) numerically:
         J = J_x + sum_j c1_j * dF/d('$s_j')   (chain rule)
+    The result is a scipy sparse matrix when the fill ratio is low,
+    otherwise a dense array.
     """
     def __init__(self, names, param_names, deriv_names, deriv_cols,
-                 rows_x, rows_d, structure):
+                 rows, structure):
         self.names = names
         self.param_names = param_names
         self.deriv_names = deriv_names
         self.deriv_cols = deriv_cols
-        self.rows_x = rows_x      # list of lambdas -> gradient wrt names
-        self.rows_d = rows_d      # list of lambdas -> gradient wrt derivs
+        # rows: list of (base_cols, base_lam, der_present, der_lam)
+        self.rows = rows
         self.structure = structure
+        self.n = len(names)
 
     def eval(self, x, params: Dict[str, float],
-             c1_map: Dict[str, float]) -> Optional[np.ndarray]:
+             c1_map: Dict[str, float]):
         env = dict(params)
         for n, v in zip(self.names, x):
             env[n] = float(v)
-        rows: List[np.ndarray] = []
-        row_iter = iter(range(len(self.rows_x)))
+        ii: List[int] = []
+        jj: List[int] = []
+        vv: List[float] = []
+        rows_walked = [0]
         with np.errstate(all="ignore"):
             try:
                 def walk(eq) -> None:
                     if eq[0] == "eq":
-                        i = next(row_iter)
-                        args = [env[n] for n in self.names] + \
-                               [env[p] for p in self.param_names]
-                        J = np.asarray(self.rows_x[i](*args), dtype=float)
-                        if self.deriv_names:
-                            rd = np.asarray(self.rows_d[i](*args), dtype=float)
-                            for j, d in enumerate(self.deriv_names):
-                                c = c1_map.get(d, 0.0)
-                                if c:
-                                    J[self.deriv_cols[j]] += c * rd[j]
-                        rows.append(J)
+                        i = rows_walked[0]
+                        rows_walked[0] += 1
+                        args = [env[n] for n in self.rows[i][4]]
+                        base_cols, base_lam, der_present, der_lam, _ = \
+                            self.rows[i]
+                        if base_cols:
+                            vals = np.asarray(base_lam(args), dtype=float)
+                            for j, v in zip(base_cols, vals):
+                                if v != 0.0:
+                                    ii.append(i)
+                                    jj.append(j)
+                                    vv.append(float(v))
+                        if der_present:
+                            dvals = np.asarray(der_lam(args), dtype=float)
+                            for jj2, v in zip(der_present, dvals):
+                                c = c1_map.get(self.deriv_names[jj2], 0.0)
+                                if c and v != 0.0:
+                                    ii.append(i)
+                                    jj.append(self.deriv_cols[jj2])
+                                    vv.append(float(c * v))
                     elif eq[0] == "if":
                         branch = eq[2] if eq[1](env) != 0.0 else eq[3]
                         for e in branch:
@@ -190,9 +205,11 @@ class JacobianEvaluator:
                     walk(e)
             except (ValueError, KeyError, IndexError):
                 return None
-        if len(rows) != len(self.names):
-            return None
-        return np.array(rows, dtype=float)
+        n_rows = rows_walked[0]
+        mat = spm.coo_matrix((vv, (ii, jj)), shape=(n_rows, self.n))
+        if len(vv) <= 0.6 * n_rows * self.n:
+            return mat.tocsr()
+        return mat.toarray()
 
 
 def compile_jacobian(compiled: list, names: List[str],
@@ -227,8 +244,7 @@ def compile_jacobian(compiled: list, names: List[str],
             return sp.Float(fixed[name])
         raise ValueError(f"unresolved name {name}")
 
-    rows_x: List = []
-    rows_d: List = []
+    rows: List = []
     deriv_cols = [names.index(d[1:]) for d in deriv_names
                   if d.startswith("$") and d[1:] in syms]
     if len(deriv_cols) != len(deriv_names):
@@ -241,10 +257,26 @@ def compile_jacobian(compiled: list, names: List[str],
                         - _to_sympy(eq[5], sym_of, array_sizes))
             except Exception:
                 return False
-            gx = [sp.diff(expr, syms[n]) for n in names]
-            rows_x.append(sp.lambdify(all_syms, gx, "numpy"))
-            gd = [sp.diff(expr, dsyms[d]) for d in deriv_names]
-            rows_d.append(sp.lambdify(all_syms, gd, "numpy"))
+            # structural sparsity: only the columns whose symbols appear
+            base_cols = [j for j, n in enumerate(names)
+                         if syms[n] in expr.free_symbols]
+            der_present = [j for j, d in enumerate(deriv_names)
+                           if dsyms[d] in expr.free_symbols]
+            # only the symbols actually used by the DIFFERENTIATED
+            # expressions are passed to lambdify (after diff, '$x' terms
+            # vanish, keeping the generated functions tiny and fast)
+            g_base = [sp.diff(expr, syms[names[j]]) for j in base_cols]
+            g_der = [sp.diff(expr, dsyms[deriv_names[j]])
+                     for j in der_present]
+            used = set()
+            for g in g_base + g_der:
+                used |= g.free_symbols
+            used = sorted(used, key=str)
+            used_names = [str(s) for s in used]
+            base_lam = sp.lambdify([used], g_base, "numpy")
+            der_lam = sp.lambdify([used], g_der, "numpy")
+            rows.append((base_cols, base_lam, der_present, der_lam,
+                         used_names))
             return True
         if eq[0] == "ineq":
             return True
@@ -257,7 +289,7 @@ def compile_jacobian(compiled: list, names: List[str],
         return None
 
     return JacobianEvaluator(names, list(param_names), list(deriv_names),
-                             deriv_cols, rows_x, rows_d, compiled)
+                             deriv_cols, rows, compiled)
 
 
 def build_jacobian(compiled: list, names: List[str],
@@ -290,7 +322,12 @@ def build_jacobian(compiled: list, names: List[str],
     c1_map = {d: float(c1) for d, (c1, _c0) in lin_deriv.items()}
 
     def jac(x) -> np.ndarray:
-        return ev.eval(x, extra_consts, c1_map)
+        J = ev.eval(x, extra_consts, c1_map)
+        if J is None:
+            return None
+        if spm.issparse(J):
+            return J.toarray()
+        return J
 
     return jac
 
@@ -310,13 +347,20 @@ def build_gradient(node, names: List[str], fixed: Dict[str, float]) -> Optional[
     try:
         expr = _to_sympy(node, sym_of)
         grad = [sp.diff(expr, syms[n]) for n in names]
-        lam = sp.lambdify([syms[n] for n in names], grad, "numpy")
+        used = set()
+        for g in grad:
+            used |= g.free_symbols
+        used = sorted(used, key=str)
+        used_names = [str(s) for s in used]
+        lam = sp.lambdify([used], grad, "numpy")
     except Exception:
         return None
 
     def g(x) -> np.ndarray:
         with np.errstate(all="ignore"):
-            return np.asarray(lam(*[float(v) for v in x]), dtype=float)
+            envmap = dict(zip(names, [float(v) for v in x]))
+            return np.asarray(lam([envmap[n] for n in used_names]),
+                              dtype=float)
 
     return g
 
@@ -328,7 +372,13 @@ def jacobian_is_available(jac: Optional[Callable], x0, names: List[str],
     if jac is None:
         return False
     try:
-        J = np.asarray(jac(x0), dtype=float)
+        J = jac(x0)
+        if J is None:
+            return False
+        if spm.issparse(J):
+            return (J.shape == (len(names), len(names))
+                    and bool(np.all(np.isfinite(J.data))))
+        J = np.asarray(J, dtype=float)
         return J.shape == (len(names), len(names)) and np.all(np.isfinite(J))
     except Exception:
         return False
