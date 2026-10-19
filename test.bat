@@ -16,6 +16,12 @@ if errorlevel 1 (
   %VENVPY% -m pip install --disable-pip-version-check -q -r requirements-dev.txt
 )
 
+rem ---- Chromium for the GUI tests (one time) ----
+if not exist "%LOCALAPPDATA%\ms-playwright" (
+  echo Installing Chromium for GUI tests ^(one time, ~150 MB^)...
+  %VENVPY% -m playwright install chromium
+)
+
 echo.
 echo   ==========================================
 echo     fgPROMS - automated test suite

@@ -258,6 +258,8 @@ class ProcessDef:
     units: List[UnitDecl] = field(default_factory=list)
     equations: List[Equation] = field(default_factory=list)
     sets: List[Assignment] = field(default_factory=list)
+    initial: List[Assignment] = field(default_factory=list)
+    schedule: List[ScheduleStep] = field(default_factory=list)
 
 
 @dataclass
@@ -498,6 +500,12 @@ class Parser:
                 elif u == "SET":
                     self.next()
                     p.sets = self.parse_assignments()
+                elif u == "INITIAL":
+                    self.next()
+                    p.initial = self.parse_assignments()
+                elif u == "SCHEDULE":
+                    self.next()
+                    p.schedule = self.parse_schedule()
                 else:
                     raise ParseError(f"Unexpected identifier '{t.value}' "
                                      f"in PROCESS", t.line, t.col)

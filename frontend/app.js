@@ -26,6 +26,7 @@ function fmt(v) {
 let editor = null;
 let lastRun = null;
 let currentFile = "untitled.gPROMS";
+let runCount = 0;
 
 /* ---------------- init ---------------- */
 function init() {
@@ -312,6 +313,9 @@ async function runModel() {
   setStatus(
     t("statusDone") + " · " + (data.messages || []).length + " " +
     t("tab_messages").toLowerCase());
+  // completion marker (also used by the GUI test suite to detect that the
+  // whole run — renders and tab switch included — has finished)
+  document.body.dataset.runCount = String(++runCount);
 }
 
 function rerenderAll() {
