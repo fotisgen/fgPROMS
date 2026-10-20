@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from . import engine
 from .export_csv import run_to_csv
+from .export_pdf import run_to_pdf
 from .export_xlsx import run_to_xlsx
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,6 +36,7 @@ class ExportRequest(BaseModel):
     results: Optional[dict] = None
     timeSeries: Optional[dict] = None
     messages: Optional[list] = None
+    model: Optional[dict] = None
 
 
 @app.get("/")
@@ -80,6 +82,13 @@ def export_xlsx(req: ExportRequest):
     import base64
     data = run_to_xlsx(req.results, req.timeSeries, req.messages)
     return {"xlsx": base64.b64encode(data).decode("ascii")}
+
+
+@app.post("/api/export_pdf")
+def export_pdf(req: ExportRequest):
+    import base64
+    data = run_to_pdf(req.results, req.timeSeries, req.model, req.messages)
+    return {"pdf": base64.b64encode(data).decode("ascii")}
 
 
 # ---------------- projects ----------------

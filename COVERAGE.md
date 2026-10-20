@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **79%**
+Τρέχουσα συνολική κάλυψη: **81%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -59,6 +59,7 @@
 | ◐ | Κλιμάκωση (ισορρόπηση γραμμών, όχι πλήρης) | `backend/solver/solver.py` |
 | ✅ | Εύρωστη αρχικοποίηση (ομοτοπία + multi-start) | `tests/test_robust_init.py` |
 | ✅ | Αριθμητικό Jacobian fallback | `backend/solver/jacobian.py` |
+| ✅ | Ανάλυση ευαισθησίας παραμέτρων (dx/dp αναλυτικά επαληθεύσιμη) | `tests/test_sensitivity_pdf.py` |
 | ✗ | Ανάλυση συστήματος (gO:GlobalSpec — εκτός σκοπού) | — |
 
 ## Ομάδα Γ — Θερμοδυναμική (βάρος 15%)
@@ -107,7 +108,7 @@
 | ✅ | MCP server (Model Context Protocol) | `tests/test_mcp.py` |
 | ◐ | Διεπαφή Excel (εξαγωγή .xlsx· όχι Matlab) | `tests/test_export_xlsx.py` || ✗ | Cloud / multi-user | — |
 | ✗ | Debugger / trace εξισώσεων | — |
-| ✗ | Αναφορές (PDF) | — |
+| ✅ | Αναφορές (PDF, reportlab) | `tests/test_sensitivity_pdf.py` |
 
 ## Πώς υπολογίζεται το ποσοστό
 

@@ -129,7 +129,8 @@ def run_model(code: str) -> dict:
                    "method": res.get("method"),
                    "values": res.get("values"),
                    "residuals": res.get("residuals"),
-                   "maxResidual": res.get("maxResidual")}
+                   "maxResidual": res.get("maxResidual"),
+                   "sensitivities": res.get("sensitivities")}
         ts = None
 
     return {"ok": True, "messages": messages, "model": info["model"],
