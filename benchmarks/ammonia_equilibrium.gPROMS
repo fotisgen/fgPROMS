@@ -1,0 +1,37 @@
+# ============================================================
+#  fgPROMS benchmark: ammonia synthesis equilibrium
+#      1/2 N2 + 3/2 H2  <=>  NH3
+#  at 723 K and 300 atm, K = 0.0064 atm^-2 (literature value
+#  for the industrial conditions; delta-nu = -1 so pressure
+#  DOES shift the equilibrium).
+#  K = y_NH3^2 / (y_N2 * y_H2^3) * P^-2
+#  The test solves the same quartic independently (brentq) and
+#  compares the extents — and sanity-checks the ~35-45% NH3
+#  conversion reported industrially.
+# ============================================================
+MODEL Ammonia
+  PARAMETER
+    P AS REAL DEFAULT 300.0     # atm
+    K AS REAL DEFAULT 0.0064    # atm^-2 at 723 K
+  VARIABLE
+    xi   AS REAL
+    nN2  AS REAL
+    nH2  AS REAL
+    nNH3 AS REAL
+    nT   AS REAL
+    yN2  AS REAL
+    yH2  AS REAL
+    yNH3 AS REAL
+  EQUATION
+    nN2 = 1 - xi ;
+    nH2 = 3 - 3*xi ;
+    nNH3 = 2*xi ;
+    nT = nN2 + nH2 + nNH3 ;
+    yN2 = nN2 / nT ;
+    yH2 = nH2 / nT ;
+    yNH3 = nNH3 / nT ;
+    yNH3^2 = K * P^2 * yN2 * yH2^3 ;
+  INITIAL
+    xi = 0.4 ;  nN2 = 0.6 ;  nH2 = 1.8 ;  nNH3 = 0.8 ;  nT = 3.2 ;
+    yN2 = 0.1875 ;  yH2 = 0.5625 ;  yNH3 = 0.25 ;
+END

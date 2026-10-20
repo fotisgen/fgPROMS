@@ -1,0 +1,32 @@
+# ============================================================
+#  fgPROMS benchmark: water-gas shift equilibrium
+#      CO + H2O  <=>  CO2 + H2       (delta-nu = 0)
+#  Equilibrium constant correlation (widely published):
+#      ln K = 4577.8/T - 4.33      (T in K, 300-2000 K)
+#  At 1000 K: K = 1.2814 and the extent of reaction is
+#      xi = sqrt(K)/(1 + sqrt(K)) = 0.53096
+#  (verified analytically in the test; ~53% CO conversion).
+# ============================================================
+MODEL WGS
+  PARAMETER
+    T AS REAL DEFAULT 1000.0
+  VARIABLE
+    lnK  AS REAL
+    K    AS REAL
+    xi   AS REAL
+    nCO  AS REAL
+    nH2O AS REAL
+    nCO2 AS REAL
+    nH2  AS REAL
+  EQUATION
+    lnK = 4577.8 / T - 4.33 ;
+    K = EXP(lnK) ;
+    nCO = 1 - xi ;
+    nH2O = 1 - xi ;
+    nCO2 = xi ;
+    nH2 = xi ;
+    K = (nCO2 * nH2) / (nCO * nH2O) ;
+  INITIAL
+    xi = 0.5 ;  K = 1.28 ;  lnK = 0.25 ;
+    nCO = 0.5 ;  nH2O = 0.5 ;  nCO2 = 0.5 ;  nH2 = 0.5 ;
+END

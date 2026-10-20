@@ -1,0 +1,53 @@
+# ============================================================
+#  fgPROMS benchmark: Gibbs-energy minimisation for the WGS
+#  reaction at 1000 K, using the OPTIMIZE section.
+#  The standard potentials are chosen CONSISTENT with the
+#  published ln K correlation (ln K = 4577.8/T - 4.33):
+#      g_CO/RT = g_H2O/RT = 0
+#      g_CO2/RT = g_H2/RT = -lnK/2
+#  so that dG/RT = -ln K.  Element balances (C, O, H) are the
+#  constraints; the solution must reproduce the equilibrium-
+#  constant result  xi = 0.53096 — two independent routes,
+#  one answer.
+# ============================================================
+MODEL WGSGibbs
+  PARAMETER
+    T   AS REAL DEFAULT 1000.0
+    lnK AS REAL DEFAULT 0.2478
+  VARIABLE
+    nCO  AS REAL
+    nH2O AS REAL
+    nCO2 AS REAL
+    nH2  AS REAL
+    nT   AS REAL
+    yCO  AS REAL
+    yH2O AS REAL
+    yCO2 AS REAL
+    yH2  AS REAL
+    G    AS REAL
+  EQUATION
+    # element balances: C, O, H  (feed: 1 CO + 1 H2O)
+    nCO + nCO2 = 1 ;
+    nCO + nH2O + 2*nCO2 = 2 ;
+    2*nH2O + 2*nH2 = 2 ;
+    nT = nCO + nH2O + nCO2 + nH2 ;
+    yCO = nCO / nT ;
+    yH2O = nH2O / nT ;
+    yCO2 = nCO2 / nT ;
+    yH2 = nH2 / nT ;
+    # G/RT = sum n_i (g_i/RT + ln y_i)
+    G = nCO * (0.0 + LN(yCO)) + nH2O * (0.0 + LN(yH2O))
+      + nCO2 * (-lnK/2 + LN(yCO2)) + nH2 * (-lnK/2 + LN(yH2)) ;
+  BOUNDS
+    nCO : 0 : 2 ;
+    nH2O : 0 : 2 ;
+    nCO2 : 0 : 2 ;
+    nH2 : 0 : 2 ;
+  INITIAL
+    nCO = 0.47 ;  nH2O = 0.47 ;  nCO2 = 0.53 ;  nH2 = 0.53 ;
+    nT = 2.0 ;
+    yCO = 0.235 ;  yH2O = 0.235 ;  yCO2 = 0.265 ;  yH2 = 0.265 ;
+    G = -1.0 ;
+  OPTIMIZE
+    MINIMIZE G ;
+END

@@ -72,6 +72,7 @@
 | ✅ | Φάκελος φάσεων (bubble/dew καμπύλες) | `tests/test_envelope.py` |
 | ✅ | Κυβικά EOS (PR/SRK) ως μοντέλα + fugacity + επιλογή backend | `tests/test_cubic_eos.py` |
 | ✅ | Μοντέλα ενεργότητας (NRTL, Wilson) — γ-φ VLE, αζεότροπο | `tests/test_activity_models.py` |
+| ✅ | Χημική ισορροπία (K-values, ελαχιστοποίηση Gibbs) | `tests/test_chemical_equilibrium.py` |
 | ✅ | Θερμοδυναμική συνέπεια (Maxwell) | `tests/test_thermo_consistency.py` |
 | ✗ | gSAFT / Multiflash (εμπορικά — εκτός σκοπού) | — |
 | ✗ | UNIFAC / custom property packages | — |
