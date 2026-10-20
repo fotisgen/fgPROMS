@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **56%**
+Τρέχουσα συνολική κάλυψη: **57%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -73,6 +73,8 @@
 | ✅ | Κυβικά EOS (PR/SRK) ως μοντέλα + fugacity + επιλογή backend | `tests/test_cubic_eos.py` |
 | ✅ | Μοντέλα ενεργότητας (NRTL, Wilson) — γ-φ VLE, αζεότροπο | `tests/test_activity_models.py` |
 | ✅ | Χημική ισορροπία (K-values, ελαχιστοποίηση Gibbs) | `tests/test_chemical_equilibrium.py` |
+| ✅ | Διαγράμματα T-s / P-h δεδομένα + heatmap 2D στο GUI | `tests/test_cycles.py`, `tests/test_gui.py` |
+| ✅ | Κύκλοι ισχύος (Rankine) με ισοεντροπικές επιλύσεις | `tests/test_cycles.py` |
 | ✅ | Θερμοδυναμική συνέπεια (Maxwell) | `tests/test_thermo_consistency.py` |
 | ✗ | gSAFT / Multiflash (εμπορικά — εκτός σκοπού) | — |
 | ✗ | UNIFAC / custom property packages | — |

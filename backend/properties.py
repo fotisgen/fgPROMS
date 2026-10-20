@@ -17,7 +17,7 @@ from typing import Callable, List
 
 try:
     from CoolProp.CoolProp import (PropsSI, AbstractState, PT_INPUTS,
-                                   PQ_INPUTS, QT_INPUTS)
+                                   PQ_INPUTS, QT_INPUTS, PSmass_INPUTS)
     COOLPROP_AVAILABLE = True
 except Exception:  # pragma: no cover - exercised only without CoolProp
     PropsSI = None
@@ -61,7 +61,8 @@ _AS_METHODS = {
 
 
 def make_prop_call(name: str, fluid: str, arg_fns: List[Callable],
-                   comp_base: str = None, backend: str = None) -> Callable:
+                   comp_base: str = None, backend: str = None,
+                   input_mode: str = None) -> Callable:
     """Build a callable env -> float for a property function.
     Returns NaN when CoolProp is missing or the call fails.
 
@@ -77,6 +78,61 @@ def make_prop_call(name: str, fluid: str, arg_fns: List[Callable],
         return lambda env: float("nan")
 
     out_key, in_keys = _SPEC[name]
+
+    # ---- named-input form: H('Water', 'PS', P, s) ------------------------
+    if input_mode:
+        mode_map = {"PT": ("T", "P"), "Q": ("Q", "P"), "TQ": ("T", "Q"),
+                    "PS": ("P", "S")}
+        if input_mode.upper() not in mode_map:
+            return lambda env: float("nan")
+        in1, in2 = mode_map[input_mode.upper()]
+        if comp_base or backend:
+            AB = backend or "HEOS"
+            AS = AbstractState(AB, fluid)
+            n_comp = fluid.count("&") + 1
+
+            def z_list(env):
+                zz = [float(env.get(f"{comp_base}({k})", 0.0))
+                      for k in range(1, n_comp + 1)]
+                s = sum(zz)
+                if s <= 0.0:
+                    return [1.0 / n_comp] * n_comp
+                return [x / s for x in zz]
+
+            def set_comp(env):
+                if comp_base:
+                    AS.set_mole_fractions(z_list(env))
+                elif n_comp > 1:
+                    AS.set_mole_fractions([1.0 / n_comp] * n_comp)
+
+            method = _AS_METHODS[name]
+
+            def fn(env, _f=arg_fns, _m=method, _mode=input_mode.upper()):
+                try:
+                    set_comp(env)
+                    v1 = float(_f[0](env))
+                    v2 = float(_f[1](env))
+                    if _mode == "Q":
+                        AS.update(PQ_INPUTS, v2, v1)     # (P, Q)
+                    elif _mode == "TQ":
+                        AS.update(QT_INPUTS, v1, v2)     # (Q, T)
+                    elif _mode == "PS":
+                        AS.update(PSmass_INPUTS, v1, v2)  # (P, s)
+                    else:
+                        AS.update(PT_INPUTS, v2, v1)     # (P, T)
+                    return float(getattr(AS, _m)())
+                except Exception:
+                    return float("nan")
+            return fn
+
+        def fn(env, _o=out_key, _i=(in1, in2), _f=arg_fns, _fl=fluid):
+            try:
+                vals = [f(env) for f in _f]
+                return float(PropsSI(_o, _i[0], vals[0], _i[1], vals[1],
+                                     _fl))
+            except Exception:
+                return float("nan")
+        return fn
 
     # ---- AbstractState path (variable composition and/or explicit
     #      equation-of-state backend) -------------------------------------

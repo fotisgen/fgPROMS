@@ -181,3 +181,15 @@ def test_xy_plot_for_arrays(page):
     assert traces >= 1
     # the X selector exists and offers p among its options
     assert page.locator("#xyX option[value='p']").count() == 1
+
+
+def test_heatmap_for_2d_arrays(page):
+    """2D results (conduction field) render as a heatmap."""
+    page.select_option("#exampleSel", "conduction_2d.gPROMS")
+    _run(page)
+    page.click("[data-tab=plots]")
+    page.wait_for_selector("#tab-plots #plotArea svg", timeout=60000)
+    # the heatmap variable selector exists and offers the field
+    assert page.locator("#hmVar option[value='t']").count() == 1
+    # a heatmap trace (rendered as an image layer) is present
+    assert page.locator("#tab-plots #plotArea image").count() >= 1

@@ -484,6 +484,19 @@ function baseGroups(values) {
   return groups;
 }
 
+function grid2DGroups(values) {
+  const groups = {};
+  for (const k of Object.keys(values || {})) {
+    const m = k.match(/^(.+)\((\d+),(\d+)\)$/);
+    if (m) {
+      const g = (groups[m[1]] = groups[m[1]] || {});
+      (g[parseInt(m[2])] = g[parseInt(m[2])] || {})[parseInt(m[3])] =
+        values[k];
+    }
+  }
+  return groups;
+}
+
 function renderPlotsTab(d) {
   const el = $("tab-plots");
   const ts = d.timeSeries;
@@ -498,6 +511,25 @@ function renderPlotsTab(d) {
     el.innerHTML = html;
     $("btnPlot").addEventListener("click", () => drawPlot(ts));
     loadPlotly().then(() => drawPlot(ts)).catch(() => {});
+    return;
+  }
+
+  // heatmap for 2D array results (conduction fields, ...)
+  const grid2d = grid2DGroups(d.results ? d.results.values : null);
+  const gridBases = Object.keys(grid2d);
+  if (gridBases.length) {
+    let html = `<div class="plot-controls"><span class="label">${t("selectVariables")}:</span>
+      <div style="display:flex;gap:14px;margin:8px 0;flex-wrap:wrap">
+        <label class="check">${t("xyX")}:
+          <select id="hmVar">${gridBases.map((b) =>
+            `<option value="${esc(b)}">${esc(b)}</option>`).join("")}</select>
+        </label>
+      </div>
+      <button id="btnHeatmap" class="btn">${t("heatmap")}</button></div>
+      <div id="plotArea" style="height:430px"></div>`;
+    el.innerHTML = html;
+    $("btnHeatmap").addEventListener("click", () => drawHeatmap());
+    loadPlotly().then(() => drawHeatmap()).catch(() => {});
     return;
   }
 
@@ -524,6 +556,28 @@ function renderPlotsTab(d) {
   } else {
     el.innerHTML = `<div class="note">${esc(t("noDynamic"))}</div>`;
   }
+}
+
+function drawHeatmap() {
+  const el = $("tab-plots");
+  if (!el.querySelector("#plotArea") || !window.Plotly || !lastRun) return;
+  const grid2d = grid2DGroups(lastRun.results ? lastRun.results.values : null);
+  const b = el.querySelector("#hmVar").value;
+  const g = grid2d[b];
+  const rows = Object.keys(g).map(Number).sort((a, c) => a - c);
+  const cols = Object.keys(g[rows[0]]).map(Number).sort((a, c) => a - c);
+  const z = rows.map((r) => cols.map((c) => (g[r] && g[r][c]) || 0));
+  const layout = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#cbd5e1", size: 12 },
+    margin: { l: 55, r: 20, t: 30, b: 45 },
+    xaxis: { title: "j", gridcolor: "#24324d" },
+    yaxis: { title: "i", gridcolor: "#24324d" },
+  };
+  Plotly.newPlot("plotArea",
+    [{ z: z, x: cols, y: rows, type: "heatmap", colorscale: "Viridis" }],
+    layout, { responsive: true, displaylogo: false });
 }
 
 function drawXY() {

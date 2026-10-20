@@ -1,0 +1,28 @@
+# ============================================================
+#  fgPROMS benchmark: water T-s / P-h diagram data
+#  Three isobars (1, 10, 100 bar) x 25 temperatures; the test
+#  verifies the monotonicity and ordering of entropy and
+#  enthalpy, and the x-y plot tab can draw the T-s lines.
+# ============================================================
+MODEL WaterTS
+  PARAMETER
+    N AS REAL DEFAULT 15
+  VARIABLE
+    T  AS ARRAY(15) OF REAL DEFAULT 400.0
+    s1 AS ARRAY(15) OF REAL DEFAULT 6000.0
+    s2 AS ARRAY(15) OF REAL DEFAULT 6000.0
+    s3 AS ARRAY(15) OF REAL DEFAULT 6000.0
+    h1 AS ARRAY(15) OF REAL DEFAULT 2.7E6
+    h2 AS ARRAY(15) OF REAL DEFAULT 2.7E6
+    h3 AS ARRAY(15) OF REAL DEFAULT 2.7E6
+  EQUATION
+    FOR i := 1 TO 15 DO
+      T(i) = 300.0 + (i - 1) * 10.0 ;
+      s1(i) = S('Water', T(i), 1.0E5) ;
+      s2(i) = S('Water', T(i), 1.0E6) ;
+      s3(i) = S('Water', T(i), 1.0E7) ;
+      h1(i) = H('Water', T(i), 1.0E5) ;
+      h2(i) = H('Water', T(i), 1.0E6) ;
+      h3(i) = H('Water', T(i), 1.0E7) ;
+    END
+END

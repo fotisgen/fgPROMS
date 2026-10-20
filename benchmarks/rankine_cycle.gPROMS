@@ -1,0 +1,55 @@
+# ============================================================
+#  fgPROMS benchmark: simple Rankine power cycle (water)
+#      30 bar / 400 C turbine inlet, 0.1 bar condenser.
+#  Uses the named-input property forms:
+#      H('Water', 'Q', 0.0, P)   -> saturated liquid enthalpy
+#      H('Water', 'PS', P, s)    -> isentropic-expansion enthalpy
+#  The test verifies against CoolProp's QP/PSmass inputs and
+#  literature cycle numbers (efficiency ~27-30 %, exit quality
+#  ~0.78-0.85) plus the first-law closure Wt = Qb - Qc.
+# ============================================================
+MODEL Rankine
+  PARAMETER
+    P1 AS REAL DEFAULT 1.0E4     # condenser pressure, Pa (0.1 bar)
+    P2 AS REAL DEFAULT 3.0E6     # boiler pressure, Pa (30 bar)
+    T3 AS REAL DEFAULT 673.15    # turbine inlet, K (400 C)
+  VARIABLE
+    T1 AS REAL                   # saturation temperature at P1
+    h1 AS REAL                   # saturated liquid
+    s1 AS REAL
+    h2 AS REAL                   # after pump
+    h3 AS REAL                   # turbine inlet (superheated)
+    s3 AS REAL
+    T4 AS REAL                   # two-phase temperature = T1
+    s4 AS REAL
+    h4 AS REAL                   # isentropic turbine exit
+    x4 AS REAL                   # exit quality
+    Qb AS REAL                   # boiler duty, J/kg
+    Qc AS REAL                   # condenser duty, J/kg
+    Wp AS REAL                   # pump work, J/kg
+    Wt AS REAL                   # turbine work, J/kg
+    eta AS REAL                  # thermal efficiency
+  EQUATION
+    T1 = TBUBBLE('Water', P1) ;
+    h1 = H('Water', 'Q', 0.0, P1) ;
+    s1 = S('Water', 'Q', 0.0, P1) ;
+    h2 = h1 + (P2 - P1) / RHO('Water', 'Q', 0.0, P1) ;   # incompressible pump
+    h3 = H('Water', T3, P2) ;
+    s3 = S('Water', T3, P2) ;
+    s4 = s3 ;                                   # isentropic turbine
+    h4 = H('Water', 'PS', P1, s3) ;
+    x4 = Q('Water', 'PS', P1, s3) ;
+    T4 = T1 ;                                   # two-phase temperature
+    Qb = h3 - h2 ;
+    Qc = h4 - h1 ;
+    Wp = h2 - h1 ;
+    Wt = h3 - h4 ;
+    eta = (Wt - Wp) / Qb ;
+  INITIAL
+    T1 = 319.0 ;  h1 = 191800.0 ;  s1 = 649.0 ;
+    h2 = 194800.0 ;
+    h3 = 3.23E6 ;  s3 = 6790.0 ;
+    T4 = 319.0 ;   s4 = 6790.0 ;   h4 = 2.2E6 ;   x4 = 0.85 ;
+    Qb = 3.0E6 ;   Qc = 2.0E6 ;   Wp = 3000.0 ;  Wt = 1.0E6 ;
+    eta = 0.3 ;
+END

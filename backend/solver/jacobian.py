@@ -188,23 +188,24 @@ class JacobianEvaluator:
                         rows_walked[0] += 1
                         row = self.rows[i]
                         if row[0] == "num":
-                            # numeric central-difference row (property
+                            # numeric forward-difference row (property
                             # functions and other non-differentiable leaves)
                             _lhs, _rhs = row[1], row[2]
+                            try:
+                                f0 = float(_lhs(env)) - float(_rhs(env))
+                            except (ValueError, TypeError):
+                                return
                             for j in range(self.n):
                                 xj = float(env[self.names[j]])
                                 h = 1e-6 * max(1.0, abs(xj))
                                 e1 = dict(env)
                                 e1[self.names[j]] = xj + h
-                                e2 = dict(env)
-                                e2[self.names[j]] = xj - h
                                 try:
-                                    d = (float(_lhs(e1)) - float(_rhs(e1))
-                                         - (float(_lhs(e2))
-                                            - float(_rhs(e2)))) / (2 * h)
+                                    f1 = (float(_lhs(e1)) - float(_rhs(e1)))
                                 except (ValueError, TypeError):
                                     continue
-                                if np.isfinite(d):
+                                d = (f1 - f0) / h
+                                if d != 0.0 and np.isfinite(d):
                                     ii.append(i)
                                     jj.append(j)
                                     vv.append(float(d))
