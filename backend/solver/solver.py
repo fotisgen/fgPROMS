@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import scipy.sparse as spm
 import scipy.sparse.linalg as spla
+import sympy as sp
 from scipy.optimize import root, minimize
 
 from ..parser.gproms_parser import (
@@ -227,7 +228,7 @@ def compile_model(model: Model) -> list:
             if eq.op == "=":
                 return ("eq", make_eval(eq.lhs), make_eval(eq.rhs), eq.leaf_id,
                         eq.lhs, eq.rhs)
-            return ("ineq", eq.leaf_id)
+            return ("ineq", eq.leaf_id, eq.lhs, eq.rhs, eq.op)
         cond = make_eval(eq.cond)
         t = [c(e) for e in eq.then_eqs]
         e = [c(e) for e in eq.else_eqs]
@@ -937,6 +938,284 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
 # set, the OPTIMIZE section defines the objective, and BOUNDS (optional)
 # bound the free variables.
 # --------------------------------------------------------------------------
+def _poly_of(node, syms, names, fixed, max_deg: int):
+    """Symbolic polynomial extraction of an AST expression up to
+    max_deg (1 = linear, 2 = quadratic). Returns (c, Q, const):
+    c = linear coefficients, Q = {(i,j) i<=j: coeff}, const.
+    None when the expression is not polynomial of that degree."""
+    from .jacobian import _to_sympy
+
+    def sym_of(name):
+        if name in syms:
+            return syms[name]
+        if name in fixed:
+            return sp.Float(fixed[name])
+        raise ValueError(name)
+
+    try:
+        expr = sp.expand(_to_sympy(node, sym_of))
+    except Exception:
+        return None
+    zeros = {s: sp.Integer(0) for s in syms.values()}
+    if max_deg == 1:
+        # linear: every first derivative must be constant
+        for n in names:
+            if sp.diff(expr, syms[n]).free_symbols:
+                return None
+    else:
+        # quadratic: every second derivative must be constant
+        for n in names:
+            if sp.diff(expr, syms[n], 2).free_symbols:
+                return None
+    c = [float(sp.diff(expr, syms[n]).subs(zeros)) for n in names]
+    Q = {}
+    if max_deg >= 2:
+        for i, n in enumerate(names):
+            d2 = float(sp.diff(expr, syms[n], 2))
+            if d2 != 0.0:
+                Q[(i, i)] = d2
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                d2 = float(sp.diff(expr, syms[names[i]], syms[names[j]]))
+                if d2 != 0.0:
+                    Q[(i, j)] = d2
+    const = float(expr.subs(zeros))
+    return c, Q, const
+
+
+def _try_highs(model: Model, info: dict, compiled: list, names: List[str],
+               base: Dict[str, float], sign: float,
+               bounds_map: Dict[str, tuple], x0, obj_fn) -> Optional[dict]:
+    """Solve LINEAR (or mixed-integer linear) programs with HiGHS.
+    Returns the result dict when applicable, else None (fall back)."""
+    try:
+        import highspy
+    except Exception:
+        return None
+
+    syms = {n: sp.Symbol(n, real=True) for n in names}
+
+    obj_poly = _poly_of(model.objective.expr, syms, names, base, max_deg=1)
+    if obj_poly is None or obj_poly[1]:
+        return None          # not linear
+    c, _q, _const = obj_poly
+
+    rows = []                # (lower, upper, indices, values)
+    for eq in compiled:
+        if eq[0] == "eq":
+            row = _poly_of(_sub_ast(eq[4], eq[5]), syms, names, base,
+                           max_deg=1)
+            if row is None:
+                return None
+            coeffs, _qq, k = row
+            rows.append((-k, -k, list(range(len(names))), coeffs))
+        elif eq[0] == "ineq":
+            op = eq[4]
+            node = _sub_ast(eq[2], eq[3]) if op in ("<", "<=") \
+                else _sub_ast(eq[3], eq[2])
+            row = _poly_of(node, syms, names, base, max_deg=1)
+            if row is None:
+                return None
+            coeffs, _qq, k = row
+            rows.append((-1e20, -k, list(range(len(names))), coeffs))
+        elif eq[0] == "if":
+            return None      # conditionals: not linear programming
+
+    # integrality: INTEGER variables
+    integer_idx = []
+    for v in info["model"]["variables"]:
+        t = (v.get("type") or "").upper()
+        vn = (v.get("name") or v.get("lower") or "").lower()
+        if t.startswith("INTEGER") and vn in syms:
+            integer_idx.append(names.index(vn))
+
+    h = highspy.Highs()
+    h.setOptionValue("output_flag", False)
+    for n in names:
+        lb, ub = bounds_map.get(n, (None, None))
+        h.addVar(-1e20 if lb is None else float(lb),
+                 1e20 if ub is None else float(ub))
+    h.changeColsCost(len(names), list(range(len(names))),
+                     [sign * ci for ci in c])
+    for lo, up, idx, vals in rows:
+        nz = [(i, v) for i, v in zip(idx, vals) if v != 0.0]
+        h.addRow(lo, up, len(nz), [i for i, _ in nz], [v for _, v in nz])
+    if integer_idx:
+        h.changeColsIntegrality(len(integer_idx), integer_idx,
+                                [highspy.HighsVarType.kInteger]
+                                * len(integer_idx))
+    h.run()
+    status = h.getModelStatus()
+    if status != highspy.HighsModelStatus.kOptimal:
+        return None          # infeasible/unbounded -> let SLSQP report
+    sol = h.getSolution()
+    x = np.array(sol.col_value, dtype=float)
+
+    values = {n: float(v) for n, v in zip(names, x)}
+    env = dict(base)
+    for n, v in zip(names, x):
+        env[n] = float(v)
+    r, ids = residuals(compiled, env)
+    maxr = max((abs(v) for v in r), default=0.0)
+    obj_value = float(obj_fn(env))
+    method = "HIGHS-MILP" if integer_idx else "HIGHS-LP"
+    messages = [{"level": "info", "code": "optimize_ok",
+                 "args": {"method": method, "obj": f"{obj_value:.8g}",
+                          "res": f"{maxr:.2e}"}}]
+    return {"success": maxr < 1e-6, "messages": messages, "values": values,
+            "objective": {"kind": info["_objective"]["kind"],
+                          "value": obj_value},
+            "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
+            "maxResidual": maxr, "method": method}
+
+
+def _sub_ast(l, r):
+    """l - r as an AST (BinOp)."""
+    from ..parser.gproms_parser import BinOp
+    return BinOp("-", l, r)
+
+
+# --------------------------------------------------------------------------
+# Ipopt (via Pyomo + IDAES binaries) — the M22 NLP backend
+# --------------------------------------------------------------------------
+_IPOPT_CACHE: List[Optional[str]] = []
+
+
+def _ipopt_path() -> Optional[str]:
+    if not _IPOPT_CACHE:
+        import os
+        cand = os.path.join(os.environ.get("LOCALAPPDATA", ""), "idaes",
+                            "bin", "ipopt.exe")
+        _IPOPT_CACHE.append(cand if os.path.isfile(cand) else None)
+    return _IPOPT_CACHE[0]
+
+
+def _to_pyomo(node, xmap, fixed, pyo):
+    from ..parser.gproms_parser import Num, Var, UnOp, BinOp, Func, IfExpr
+    if isinstance(node, Num):
+        return float(node.v)
+    if isinstance(node, Var):
+        n = node.name.lower()
+        if n in xmap:
+            return xmap[n]
+        return float(fixed.get(n, 0.0))
+    if isinstance(node, UnOp):
+        return -_to_pyomo(node.x, xmap, fixed, pyo)
+    if isinstance(node, BinOp):
+        op = node.op
+        if op in ("=", "<>", "<", "<=", ">", ">=", "AND", "OR"):
+            raise ValueError("comparison is not an expression")
+        l = _to_pyomo(node.l, xmap, fixed, pyo)
+        r = _to_pyomo(node.r, xmap, fixed, pyo)
+        if op == "+":
+            return l + r
+        if op == "-":
+            return l - r
+        if op == "*":
+            return l * r
+        if op == "/":
+            return l / r
+        if op in ("^", "**"):
+            return l ** r
+        raise ValueError(f"operator {op}")
+    if isinstance(node, Func):
+        if node.name in ("MAX", "MIN", "SIGN", "SIGMA", "PARTIAL", "INT",
+                         "ABS"):
+            raise ValueError(f"{node.name} not supported by Ipopt path")
+        args = [_to_pyomo(a, xmap, fixed, pyo) for a in node.args]
+        if node.name == "EXP":
+            return pyo.exp(args[0])
+        if node.name == "LN":
+            return pyo.log(args[0])
+        if node.name == "LOG":
+            return pyo.log10(args[0])
+        if node.name == "SQRT":
+            return pyo.sqrt(args[0])
+        if node.name == "SIN":
+            return pyo.sin(args[0])
+        if node.name == "COS":
+            return pyo.cos(args[0])
+        if node.name == "TAN":
+            return pyo.tan(args[0])
+        raise ValueError(f"{node.name} not supported by Ipopt path")
+    if isinstance(node, IfExpr):
+        raise ValueError("IF not supported by Ipopt path")
+    raise ValueError("unsupported node for Ipopt path")
+
+
+def _try_ipopt(model: Model, info: dict, compiled: list, names: List[str],
+               base: Dict[str, float], sign: float,
+               bounds_map: Dict[str, tuple], obj_fn) -> Optional[dict]:
+    """Solve the NLP with Ipopt (Pyomo interface, IDAES binaries).
+    Returns a result dict, or None when unavailable/applicable."""
+    exe = _ipopt_path()
+    if not exe:
+        return None
+    try:
+        import pyomo.environ as pyo
+    except Exception:
+        return None
+    guesses = info["_initial_guess"]
+    try:
+        m = pyo.ConcreteModel()
+        m.x = pyo.Var(list(range(len(names))))
+        for i, n in enumerate(names):
+            lb, ub = bounds_map.get(n, (None, None))
+            m.x[i].setlb(-1e19 if lb is None else float(lb))
+            m.x[i].setub(1e19 if ub is None else float(ub))
+            m.x[i].value = float(guesses.get(n, 0.0))
+        xmap = {n: m.x[i] for i, n in enumerate(names)}
+        obj_expr = _to_pyomo(model.objective.expr, xmap, base, pyo)
+        m.obj = pyo.Objective(expr=obj_expr,
+                              sense=pyo.maximize if sign < 0
+                              else pyo.minimize)
+        m.cons = pyo.ConstraintList()
+        for eq in compiled:
+            if eq[0] == "eq":
+                e = (_to_pyomo(eq[4], xmap, base, pyo)
+                     - _to_pyomo(eq[5], xmap, base, pyo))
+                m.cons.add(e == 0)
+            elif eq[0] == "ineq":
+                op = eq[4]
+                e = (_to_pyomo(eq[2], xmap, base, pyo)
+                     - _to_pyomo(eq[3], xmap, base, pyo))
+                m.cons.add(e <= 0 if op in ("<", "<=") else -e <= 0)
+            elif eq[0] == "if":
+                return None
+        solver = pyo.SolverFactory("ipopt", executable=exe)
+        solver.options["print_level"] = 0
+        solver.options["tol"] = 1e-10
+        res = solver.solve(m, tee=False)
+        from pyomo.opt import TerminationCondition
+        if res.solver.termination_condition not in (
+                TerminationCondition.optimal,
+                TerminationCondition.locallyOptimal,
+                TerminationCondition.feasible):
+            return None
+        x = np.array([pyo.value(m.x[i]) for i in range(len(names))],
+                     dtype=float)
+    except Exception:
+        return None
+    if not np.all(np.isfinite(x)):
+        return None
+
+    values = {n: float(v) for n, v in zip(names, x)}
+    env = dict(base)
+    for n, v in zip(names, x):
+        env[n] = float(v)
+    r, ids = residuals(compiled, env)
+    maxr = max((abs(v) for v in r), default=0.0)
+    obj_value = float(obj_fn(env))
+    messages = [{"level": "info", "code": "optimize_ok",
+                 "args": {"method": "IPOPT", "obj": f"{obj_value:.8g}",
+                          "res": f"{maxr:.2e}"}}]
+    return {"success": maxr < 1e-6, "messages": messages, "values": values,
+            "objective": {"kind": info["_objective"]["kind"],
+                          "value": obj_value},
+            "residuals": [{"id": i, "value": float(v)} for i, v in zip(ids, r)],
+            "maxResidual": maxr, "method": "IPOPT"}
+
+
 def solve_optimize(model: Model, info: dict) -> dict:
     names: List[str] = info["_unknowns"]
     base: Dict[str, float] = dict(info["_fixed_values"])
@@ -948,6 +1227,14 @@ def solve_optimize(model: Model, info: dict) -> dict:
     obj_fn = make_eval(model.objective.expr)
     sign = -1.0 if model.objective.kind == "maximize" else 1.0
     x0 = np.array([guesses.get(n, 0.0) for n in names], dtype=float)
+
+    bounds = [(bounds_map.get(n, (None, None))) for n in names]
+
+    # ---- HiGHS path: linear programs (and MILP with INTEGER variables) ---
+    highs_res = _try_highs(model, info, compiled, names, base, sign,
+                           bounds_map, x0, obj_fn)
+    if highs_res is not None:
+        return highs_res
 
     n_cons = 0
     try:
@@ -972,7 +1259,6 @@ def solve_optimize(model: Model, info: dict) -> dict:
         except Exception:
             return np.full(max(n_cons, 1), 1e10)
 
-    bounds = [(bounds_map.get(n, (None, None))) for n in names]
     constraints = [{"type": "eq", "fun": cons}]
     jac = None
     try:
@@ -1023,6 +1309,13 @@ def solve_optimize(model: Model, info: dict) -> dict:
         messages = [{"level": "error", "code": "optimize_failed",
                      "args": {"detail": detail}}]
         success = False
+
+    # ---- Ipopt rescue: when SLSQP fails on a hard NLP ---------------------
+    if not success:
+        ip_res = _try_ipopt(model, info, compiled, names, base, sign,
+                            bounds_map, obj_fn)
+        if ip_res is not None and ip_res["success"]:
+            return ip_res
 
     return {"success": success, "messages": messages, "values": values,
             "objective": {"kind": obj_meta["kind"], "value": obj_value},

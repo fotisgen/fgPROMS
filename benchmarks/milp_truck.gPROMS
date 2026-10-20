@@ -1,0 +1,19 @@
+# ============================================================
+#  fgPROMS benchmark: mixed-integer linear program (HiGHS)
+#  Truck load: 10-kg batches of A (profit 30) and 15-kg
+#  batches of B (profit 40), capacity 45 kg. The integer
+#  optimum is 3 x A + 1 x B (45 kg), profit = 130
+#  (4 x A would only be 120).
+# ============================================================
+MODEL TruckLoad
+  VARIABLE
+    nA AS INTEGER
+    nB AS INTEGER
+  EQUATION
+    10*nA + 15*nB <= 45 ;
+  BOUNDS
+    nA : 0 : 10 ;
+    nB : 0 : 10 ;
+  OPTIMIZE
+    MAXIMIZE 30*nA + 40*nB ;
+END

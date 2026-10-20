@@ -5,3 +5,6 @@ uvicorn>=0.29
 sympy>=1.12
 coolprop>=6.6
 mcp>=1.0
+highspy>=1.0
+pyomo>=6.0
+idaes-pse<3

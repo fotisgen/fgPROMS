@@ -1,0 +1,22 @@
+# ============================================================
+#  fgPROMS benchmark: linear program (solved by HiGHS)
+#      maximize   3x + 2y
+#      subject to x + 2y <= 4
+#                 2x + y <= 5
+#                 x, y >= 0
+#  Textbook optimum: x = 2, y = 1, objective = 8
+#  (verified independently in the test with scipy.optimize.linprog).
+# ============================================================
+MODEL LinearProgram
+  VARIABLE
+    x AS REAL
+    y AS REAL
+  EQUATION
+    x + 2*y <= 4 ;
+    2*x + y <= 5 ;
+  BOUNDS
+    x : 0 : 10 ;
+    y : 0 : 10 ;
+  OPTIMIZE
+    MAXIMIZE 3*x + 2*y ;
+END
