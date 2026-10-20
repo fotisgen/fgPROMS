@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **65%**
+Τρέχουσα συνολική κάλυψη: **69%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -31,13 +31,13 @@
 | ✅ | Εξισώσεις IF/THEN/ELSE και IF εκφράσεις | `tests/test_analyzer.py`, `tests/test_robustness.py` |
 | ✅ | Βρόχοι FOR σε εξισώσεις | `tests/test_envelope.py` |
 | ✅ | TASK / PHASE / SCHEDULE / END WHEN | `tests/test_phases.py` |
-| ✗ | WITHIN (χρονικά παράθυρα στο SCHEDULE) | — |
+| ◐ | WITHIN (χρονικά παράθυρα στο SCHEDULE — συντακτική υποστήριξη) | `tests/test_language_extras.py` |
 | ✅ | CASE / SWITCH εξισώσεις (επέκταση σε IF-αλυσίδα) | `tests/test_case_switch.py` |
-| ✗ | SELECTOR (επιλογή θερμοδυναμικής) | — |
+| ✅ | SELECTOR (επιλογή EOS backend σε όλα τα property calls) | `tests/test_language_extras.py` |
 | ◐ | REINITIALIZE (RESTART όχι ακόμη) | `tests/test_reinitialize.py` |
 | ✗ | PIECEWISE γραμμικές εξισώσεις / πίνακες | — |
 | ✗ | ORDERED_SET | — |
-| ✗ | Τύποι STRING | — |
+| ✅ | Τύποι STRING (παραμετροποίηση ρευστών κ.λπ.) | `tests/test_language_extras.py` |
 | ◐ | Μονάδες: διαστατικός έλεγχος κάθε εξίσωσης (χωρίς μετατροπές) | `tests/test_units.py` |
 | ✗ | FOREIGN_OBJECT / FOREIGN_PROCESS (αρχιτεκτονικά εκτός σκοπού) | — |
 | ✅ | Τελεστές PARTIAL / INT | `tests/test_distributed.py` |

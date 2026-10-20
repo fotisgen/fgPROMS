@@ -44,7 +44,7 @@ def test_if_without_end():
 
 
 def test_unsupported_section():
-    r = run_model("MODEL X\nSELECTOR\na AS REAL\nEND")
+    r = run_model("MODEL X\nSOLUTIONPARAMETER\na AS REAL\nEND")
     assert has_msg(r, "err_unsupported_section", "error")
 
 

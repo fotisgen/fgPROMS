@@ -169,5 +169,5 @@ def test_unbalanced_parens_raises():
 
 def test_unsupported_section_raises_code():
     with pytest.raises(ParseError) as e:
-        parse_model("MODEL X\nSELECTOR\nA AS REAL\nEND")
+        parse_model("MODEL X\nSOLUTIONPARAMETER\nA AS REAL\nEND")
     assert e.value.code == "err_unsupported_section"

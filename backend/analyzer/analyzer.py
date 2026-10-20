@@ -214,9 +214,68 @@ def analyze(model: Model) -> dict:
                                   "base": nm.lower(), "type": d.type_text,
                                   "default_node": d.default, "line": d.line})
 
+    # ---- STRING parameters + SELECTOR: AST-level substitution -----------
+    string_values: Dict[str, str] = {}
+    for p in params:
+        if (p["type"] or "").upper().startswith("STRING"):
+            dn = p["default_node"]
+            if isinstance(dn, Str):
+                string_values[p["lower"]] = dn.value
+            else:
+                messages.append({"level": "warn",
+                                 "code": "warn_string_nodefault",
+                                 "args": {"name": p["name"]}})
+    selector_backend = model.selector[1] if model.selector else None
+
+    def _subst(node):
+        if isinstance(node, Var):
+            sv = string_values.get(node.name.lower())
+            return Str(sv) if sv is not None else node
+        if isinstance(node, (Num, Str, Deriv)):
+            return node
+        if isinstance(node, UnOp):
+            return UnOp(node.op, _subst(node.x))
+        if isinstance(node, BinOp):
+            return BinOp(node.op, _subst(node.l), _subst(node.r))
+        if isinstance(node, Func):
+            args = [_subst(a) for a in node.args]
+            n_str = sum(1 for a in args if isinstance(a, Str))
+            if (selector_backend and node.name in PROP_FUNCS
+                    and n_str == 1 and isinstance(args[0], Str)):
+                args = args + [Str(selector_backend)]
+            return Func(node.name, args)
+        if isinstance(node, Indexed):
+            return Indexed(node.name, [_subst(i) for i in node.indices])
+        if isinstance(node, IfExpr):
+            return IfExpr(_subst(node.cond), _subst(node.then),
+                           _subst(node.els))
+        return node
+
+    def _subst_eq(e):
+        if isinstance(e, EqEquation):
+            return EqEquation(_subst(e.lhs), _subst(e.rhs), e.op)
+        if isinstance(e, IfEquation):
+            return IfEquation(_subst(e.cond),
+                              [_subst_eq(x) for x in e.then_eqs],
+                              [_subst_eq(x) for x in e.else_eqs])
+        if isinstance(e, ForEquation):
+            return ForEquation(e.var, e.lo, e.hi,
+                               [_subst_eq(x) for x in e.eqs])
+        return e
+
+    if string_values or selector_backend:
+        model.equations = [_subst_eq(e) for e in model.equations]
+        for ph in model.task_phases.values():
+            ph.equations = [_subst_eq(e) for e in ph.equations]
+            ph.reinits = [(n, _subst(x)) for n, x in ph.reinits]
+        if model.objective is not None:
+            model.objective.expr = _subst(model.objective.expr)
+
     # ---- parameter values (evaluated in declaration order) ------------------
     env: Dict[str, float] = {}
     for p in params:
+        if p["lower"] in string_values:
+            continue
         val = _eval_const(p["default_node"], env)
         if val is None:
             val = 0.0
@@ -849,7 +908,10 @@ def analyze(model: Model) -> dict:
         "parameters": [{"name": p["name"], "type": p["type"],
                         "default": (expr_str(p["default_node"])
                                     if p["default_node"] is not None else None),
-                        "value": env[p["lower"]]} for p in params],
+                        "value": (env[p["lower"]]
+                                  if p["lower"] in env
+                                  else string_values.get(p["lower"], ""))}
+                       for p in params],
         "variables": [{"name": v["name"], "type": v["type"],
                        "guess": initial_guess[v["lower"]],
                        "fixed": v["lower"] in fixed,

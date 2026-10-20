@@ -49,7 +49,7 @@ SECTION_KEYWORDS = {
 RESERVED = SECTION_KEYWORDS | {
     "MODEL", "END", "DEFAULT", "IF", "THEN", "ELSE", "CASE", "SWITCH", "WHEN",
     "CONTINUE", "FOR", "TO", "STEP", "SEQUENCE", "AS", "REAL", "INTEGER",
-    "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN",
+    "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN", "STRING",
     "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
     "WITH", "PHASE", "MATERIAL", "FROM", "FILE", "DO", "REINITIALIZE",
 }
@@ -243,6 +243,7 @@ class ScheduleStep:
     t1: Node
     step: Optional[Node]
     phase: Optional[str] = None
+    within: Optional[tuple] = None
 
 
 @dataclass
@@ -347,6 +348,7 @@ class Model:
     data: List[DataDecl] = field(default_factory=list)
     estimate: List[str] = field(default_factory=list)
     task_phases: dict = field(default_factory=dict)   # phase_lower -> equations
+    selector: Optional[tuple] = None       # (name, backend)
 
 
 # --------------------------------------------------------------------------
@@ -443,6 +445,14 @@ class Parser:
     def at_op(self, op: str) -> bool:
         t = self.peek()
         return t.kind == "OP" and t.value == op
+
+    def expect_str(self) -> Token:
+        t = self.peek()
+        if t.kind != "STRING":
+            raise ParseError(f"Expected a string but found '{t.value}'",
+                             t.line, t.col)
+        self.next()
+        return t
 
     def at_kw(self, word: str) -> bool:
         t = self.peek()
@@ -554,6 +564,9 @@ class Parser:
                 elif u == "TASK":
                     self.next()
                     model.task_phases = self.parse_task()
+                elif u == "SELECTOR":
+                    self.next()
+                    model.selector = self.parse_selector()
                 elif u in SECTION_KEYWORDS:
                     raise ParseError(
                         f"Section '{u}' is not supported by fgPROMS (Phase 1)",
@@ -848,7 +861,15 @@ class Parser:
             if self.at_kw("STEP"):
                 self.next()
                 step = self.parse_expr()
-            steps.append(ScheduleStep(var.value, t0, t1, step, phase))
+            win = None
+            if self.at_kw("WITHIN"):
+                self.next()
+                w0 = self.parse_expr()
+                self.expect_kw("TO")
+                w1 = self.parse_expr()
+                win = (w0, w1)
+            steps.append(ScheduleStep(var.value, t0, t1, step, phase,
+                                       win))
         self.expect_kw("END")
         return steps
 
@@ -880,6 +901,14 @@ class Parser:
                                                    reinits, name_tok.line)
         self.expect_kw("END")
         return phases
+
+    def parse_selector(self):
+        name = self.expect_ident().value
+        self.expect_kw("AS")
+        val = self.expect_str().value
+        if self.at_op(";"):
+            self.next()
+        return (name, val)
 
     # -- objective / bounds (optimization) ----------------------------------------
     def parse_objective(self) -> Objective:
