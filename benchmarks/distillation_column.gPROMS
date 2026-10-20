@@ -1,0 +1,54 @@
+# ============================================================
+#  fgPROMS benchmark: binary distillation column
+#  (McCabe–Thiele model, constant molal overflow)
+#  8 equilibrium stages, total condenser, partial reboiler,
+#  constant relative volatility alpha = 2.5, saturated-liquid
+#  feed (q = 1) at stage 4.
+#  Verified in the tests:
+#    * overall mass balance  F*zF = D*xD + B*xB
+#    * monotone liquid profile (xD down to xB)
+#    * Fenske limit: at R -> infinity,
+#          ln[(xD/(1-xD)) / (xB/(1-xB))] / ln(alpha) ~ N
+#      (independently recomputed in the test)
+# ============================================================
+MODEL DistillationColumn
+  PARAMETER
+    N  AS REAL DEFAULT 8
+    al AS REAL DEFAULT 2.5
+    zF AS REAL DEFAULT 0.5
+    F  AS REAL DEFAULT 1.0
+    D  AS REAL DEFAULT 0.5
+    R  AS REAL DEFAULT 2.0
+    q  AS REAL DEFAULT 1.0
+  VARIABLE
+    x  AS ARRAY(8) OF REAL DEFAULT 0.5
+    y  AS ARRAY(8) OF REAL DEFAULT 0.7
+    xD AS REAL
+    xB AS REAL
+    B  AS REAL
+    L  AS REAL
+    V  AS REAL
+    Lb AS REAL
+    Vb AS REAL
+  EQUATION
+    B = F - D ;
+    F * zF = D * xD + B * xB ;
+    L = R * D ;
+    V = L + D ;
+    Lb = L + q * F ;
+    Vb = V - (1 - q) * F ;
+    xD = y(1) ;
+    xB = x(8) ;
+    FOR i := 1 TO 8 DO
+      y(i) = al * x(i) / (1 + (al - 1) * x(i)) ;
+    END
+    FOR i := 1 TO 3 DO
+      V * y(i + 1) = L * x(i) + D * xD ;
+    END
+    FOR i := 4 TO 7 DO
+      Lb * x(i) = Vb * y(i + 1) + B * xB ;
+    END
+  INITIAL
+    xD = 0.9 ;   xB = 0.1 ;
+    L = 1.0 ;    V = 1.5 ;    Lb = 2.0 ;   Vb = 1.5 ;
+END
