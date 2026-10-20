@@ -74,7 +74,8 @@ def run_model(code: str) -> dict:
                    "maxResidual": res.get("maxResidual"),
                    "estimated": res.get("estimated"),
                    "sse": res.get("sse"),
-                   "dataFit": res.get("dataFit")}
+                   "dataFit": res.get("dataFit"),
+                   "stats": res.get("stats")}
         return {"ok": True, "messages": messages, "model": info["model"],
                 "results": results, "timeSeries": res.get("series")}
 

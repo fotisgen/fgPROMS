@@ -1419,6 +1419,37 @@ def solve_optimize(model: Model, info: dict) -> dict:
             "maxResidual": maxr, "method": "SLSQP"}
 
 
+def _eval_const_node(node, env: Dict[str, float]):
+    """Evaluate a constant expression (Num/Var/arith) against env."""
+    from ..parser.gproms_parser import Num, Var, UnOp, BinOp
+    if isinstance(node, Num):
+        return float(node.v)
+    if isinstance(node, Var):
+        return env.get(node.name.lower(), 0.0)
+    if isinstance(node, UnOp):
+        v = _eval_const_node(node.x, env)
+        return -v if node.op == "-" else v
+    if isinstance(node, BinOp):
+        l = _eval_const_node(node.l, env)
+        r = _eval_const_node(node.r, env)
+        op = node.op
+        if op == "+":
+            return l + r
+        if op == "-":
+            return l - r
+        if op == "*":
+            return l * r
+        if op == "/":
+            return l / r if r != 0.0 else 0.0
+        if op in ("^", "**"):
+            try:
+                return math.pow(l, r) if l > 0 else 0.0
+            except Exception:
+                return 0.0
+        return 0.0
+    return 0.0
+
+
 # --------------------------------------------------------------------------
 # Parameter estimation (gEST-style): fit ESTIMATE parameters to DATA by
 # least squares. The model is solved inside the objective — every candidate
@@ -1437,6 +1468,15 @@ def solve_estimation(model: Model, info: dict) -> dict:
         info2 = dict(info)
         info2["_fixed_values"] = dict(base_fixed)
         info2["_fixed_values"].update(params_dict)
+        # INITIAL values that reference estimated parameters must be
+        # recomputed for every candidate parameter set
+        info2["_initial_guess"] = dict(info["_initial_guess"])
+        for s, node in (info.get("_initial_exprs") or {}).items():
+            try:
+                info2["_initial_guess"][s] = _eval_const_node(
+                    node, info2["_fixed_values"])
+            except Exception:
+                pass
         if dynamic:
             res = solve_dynamic(model, info2)
             if not res["success"]:
@@ -1496,6 +1536,56 @@ def solve_estimation(model: Model, info: dict) -> dict:
         for t_i, val in pts:
             data_fit.append({"var": var, "t": t_i, "measured": val,
                              "model": float(at(var, t_i))})
+
+    # ---- estimation statistics: standard errors + 95% confidence bounds ---
+    stats = None
+    try:
+        n = sum(len(pts) for _var, pts in data)
+        p = len(est)
+        dof = n - p
+        if dof > 0:
+            theta = np.array(r.x, dtype=float)
+
+            def resid(theta_v):
+                sim2 = simulate({nm: float(v)
+                                 for nm, v in zip(est, theta_v)})
+                if sim2 is None:
+                    return None
+                at2, _ = sim2
+                out = []
+                for var, pts in data:
+                    for t_i, val in pts:
+                        out.append(at2(var, t_i) - val)
+                return np.array(out, dtype=float)
+
+            r0 = resid(theta)
+            if r0 is not None:
+                J = np.zeros((n, p))
+                for j in range(p):
+                    h = 1e-6 * max(1.0, abs(float(theta[j])))
+                    th = np.array(theta, dtype=float)
+                    th[j] += h
+                    rj = resid(th)
+                    if rj is None:
+                        J = None
+                        break
+                    J[:, j] = (rj - r0) / h
+                if J is not None and np.all(np.isfinite(J)):
+                    sigma2 = float(np.sum(r0 ** 2)) / dof
+                    cov = sigma2 * np.linalg.inv(J.T @ J)
+                    se = np.sqrt(np.maximum(np.diag(cov), 0.0))
+                    from scipy.stats import t as tdist
+                    tval = float(tdist.ppf(0.975, dof))
+                    ci = [(float(theta[k] - tval * se[k]),
+                           float(theta[k] + tval * se[k]))
+                          for k in range(p)]
+                    stats = {"n": n, "p": p, "dof": dof,
+                             "sigma2": float(sigma2),
+                             "stdErrors": [float(s) for s in se],
+                             "ci95": ci}
+    except Exception:
+        stats = None
+
     messages = [{"level": "info", "code": "estimate_ok",
                  "args": {"method": "SLSQP", "sse": f"{sse:.6g}"}}]
     return {"success": True, "messages": messages,
@@ -1503,5 +1593,5 @@ def solve_estimation(model: Model, info: dict) -> dict:
             "residuals": res_final.get("residuals"),
             "maxResidual": res_final.get("maxResidual"),
             "method": "SLSQP", "estimated": best, "sse": sse,
-            "dataFit": data_fit,
+            "dataFit": data_fit, "stats": stats,
             "series": res_final.get("series")}

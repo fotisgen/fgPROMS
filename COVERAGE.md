@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **70%**
+Τρέχουσα συνολική κάλυψη: **71%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -51,7 +51,7 @@
 | ✅ | Αραιοί Jacobians (structural sparsity) | `tests/test_distributed.py::test_2d_jacobian_is_sparse` |
 | ✅ | DAE ολοκλήρωση BDF 1–5 μεταβλητής τάξης με έλεγχο σφάλματος | `tests/test_solver_dynamic.py` |
 | ✅ | Ανίχνευση γεγονότων με διχοτόμηση | `tests/test_phases.py` |
-| ◐ | Παραμετρική εκτίμηση DATA/ESTIMATE (1 πείραμα, χωρίς στατιστικά) | `tests/test_estimation.py` |
+| ✅ | Παραμετρική εκτίμηση DATA/ESTIMATE με στατιστικά (SE, 95% CI) | `tests/test_estimation.py`, `tests/test_estimation_stats.py` |
 | ✅ | Βελτιστοποίηση SLSQP + Ipopt (NLP rescue) | `tests/test_optimization.py`, `tests/test_highs_ipopt.py` |
 | ✅ | LP / MILP επιλυτές (HiGHS) | `tests/test_highs_ipopt.py` |
 | ◐ | Δυναμική βελτιστοποίηση (gOPT-lite: σταθερός έλεγχος) | `tests/test_dynamic_opt.py` |

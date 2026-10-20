@@ -662,10 +662,12 @@ def analyze(model: Model) -> dict:
     # ---- INITIAL / guesses ------------------------------------------------------
     guesses: Dict[str, float] = {}
     has_initial: Set[str] = set()
+    initial_exprs: Dict[str, object] = {}
     for a in model.initial:
         v = _eval_const(a.value, env)
         guesses[a.name.lower()] = v if v is not None else 0.0
         has_initial.add(a.name.lower())
+        initial_exprs[a.name.lower()] = a.value
     initial_guess: Dict[str, float] = {}
     for v in variables:
         key = v["lower"]
@@ -953,6 +955,7 @@ def analyze(model: Model) -> dict:
         "_states": states,
         "_fixed_values": env,
         "_initial_guess": initial_guess,
+        "_initial_exprs": initial_exprs,
         "_schedule": schedule,
         "_has_initial": has_initial,
         "_dof": dof,
