@@ -8,3 +8,4 @@ mcp>=1.0
 highspy>=1.0
 pyomo>=6.0
 idaes-pse<3
+openpyxl>=3.0

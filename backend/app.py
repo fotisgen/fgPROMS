@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from . import engine
 from .export_csv import run_to_csv
+from .export_xlsx import run_to_xlsx
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
@@ -33,6 +34,7 @@ class ProjectSaveRequest(BaseModel):
 class ExportRequest(BaseModel):
     results: Optional[dict] = None
     timeSeries: Optional[dict] = None
+    messages: Optional[list] = None
 
 
 @app.get("/")
@@ -71,6 +73,13 @@ def run(req: RunRequest):
 @app.post("/api/export")
 def export(req: ExportRequest):
     return {"csv": run_to_csv(req.results, req.timeSeries)}
+
+
+@app.post("/api/export_xlsx")
+def export_xlsx(req: ExportRequest):
+    import base64
+    data = run_to_xlsx(req.results, req.timeSeries, req.messages)
+    return {"xlsx": base64.b64encode(data).decode("ascii")}
 
 
 # ---------------- projects ----------------

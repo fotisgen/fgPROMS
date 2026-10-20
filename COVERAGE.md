@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **71%**
+Τρέχουσα συνολική κάλυψη: **72%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -101,12 +101,11 @@
 |---|---|---|
 | ✅ | Web GUI με γραφήματα (Plotly) | `tests/test_gui.py` |
 | ✅ | Δίγλωσσο UI (Ελληνικά/English) | `frontend/i18n.js` |
-| ✅ | Export CSV | `tests/test_gui.py` |
+| ✅ | Export CSV + **Excel (.xlsx)** με openpyxl | `tests/test_gui.py`, `tests/test_export_xlsx.py` |
 | ✅ | Διαχείριση projects | `tests/test_projects.py` |
 | ✅ | Tutorials / τεκμηρίωση στα ελληνικά | `tests/test_tutorials.py` |
 | ✅ | MCP server (Model Context Protocol) | `tests/test_mcp.py` |
-| ✗ | Διεπαφή Excel / Matlab | — |
-| ✗ | Cloud / multi-user | — |
+| ◐ | Διεπαφή Excel (εξαγωγή .xlsx· όχι Matlab) | `tests/test_export_xlsx.py` || ✗ | Cloud / multi-user | — |
 | ✗ | Debugger / trace εξισώσεων | — |
 | ✗ | Αναφορές (PDF) | — |
 

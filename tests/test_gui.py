@@ -169,6 +169,16 @@ def test_csv_export_download(page):
     assert download.suggested_filename.endswith(".csv")
 
 
+def test_xlsx_export_download(page):
+    page.select_option("#exampleSel", "tank.gPROMS")
+    _run(page)
+    page.wait_for_selector("#tab-results #btnXlsx", timeout=60000)
+    with page.expect_download() as dl_info:
+        page.click("#tab-results #btnXlsx")
+    download = dl_info.value
+    assert download.suggested_filename.endswith(".xlsx")
+
+
 def test_xy_plot_for_arrays(page):
     """Array results (phase envelope) offer an x-y plot instead of time
     series."""

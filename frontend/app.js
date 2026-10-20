@@ -223,7 +223,7 @@ async function deleteProject() {
   }
 }
 
-/* ---------------- CSV export ---------------- */
+/* ---------------- CSV / Excel export ---------------- */
 async function exportCsv() {
   if (!lastRun) return;
   try {
@@ -240,6 +240,36 @@ async function exportCsv() {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = (currentFile || "model").replace(/\.gPROMS$/i, "") + ".csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setStatus(t("csvDownloaded") + a.download);
+  } catch (e) {
+    setStatus(t("loadErr"));
+  }
+}
+
+async function exportXlsx() {
+  if (!lastRun) return;
+  try {
+    const res = await fetch("/api/export_xlsx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        results: lastRun.results,
+        timeSeries: lastRun.timeSeries,
+        messages: lastRun.messages,
+      }),
+    });
+    const data = await res.json();
+    const bin = atob(data.xlsx);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (currentFile || "model").replace(/\.gPROMS$/i, "") + ".xlsx";
     a.click();
     URL.revokeObjectURL(a.href);
     setStatus(t("csvDownloaded") + a.download);
@@ -463,10 +493,12 @@ function renderResultsTab(d) {
       html += `<tr><td>#${rr.id}</td><td>${fmt(rr.value)}</td></tr>`;
     html += "</tbody></table>";
   }
-  html += `<div style="margin-top:14px"><button id="btnCsv" class="btn">${t("exportCsv")}</button></div>`;
+  html += `<div style="margin-top:14px"><button id="btnCsv" class="btn">${t("exportCsv")}</button> <button id="btnXlsx" class="btn">${t("exportXlsx")}</button></div>`;
   el.innerHTML = html;
   const btnCsv = el.querySelector("#btnCsv");
   if (btnCsv) btnCsv.addEventListener("click", exportCsv);
+  const btnXlsx = el.querySelector("#btnXlsx");
+  if (btnXlsx) btnXlsx.addEventListener("click", exportXlsx);
 }
 
 /* ---------------- plots tab ---------------- */
