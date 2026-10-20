@@ -1,0 +1,36 @@
+# ============================================================
+#  fgPROMS benchmark: Wilson activity-coefficient model for
+#  methanol(1)–water(2) at 25 C.
+#  Parameters (lambda differences, Gmehling/Onken):
+#      (lam12 - lam11)/R = 108.66 K
+#      (lam21 - lam22)/R = 399.05 K
+#  The infinite-dilution identity
+#      ln gamma1(inf) = 1 - ln(Lambda12) - Lambda21
+#  is verified numerically by the test.
+# ============================================================
+MODEL WilsonMethanolWater
+  PARAMETER
+    T   AS REAL DEFAULT 298.15
+    d12 AS REAL DEFAULT 108.66     # K, (lam12-lam11)/R
+    d21 AS REAL DEFAULT 399.05     # K, (lam21-lam22)/R
+    x1  AS REAL DEFAULT 0.5
+  VARIABLE
+    L12  AS REAL
+    L21  AS REAL
+    x2   AS REAL
+    g1   AS REAL
+    g2   AS REAL
+    lnG1inf AS REAL                # ln gamma1 at infinite dilution
+  EQUATION
+    L12 = EXP(-d12 / T) ;
+    L21 = EXP(-d21 / T) ;
+    x2 = 1 - x1 ;
+    g1 = EXP(-LN(x1 + L12*x2)
+             + x2*(L12/(x1 + L12*x2) - L21/(L21*x1 + x2))) ;
+    g2 = EXP(-LN(x2 + L21*x1)
+             - x1*(L12/(x1 + L12*x2) - L21/(L21*x1 + x2))) ;
+    lnG1inf = 1 - LN(L12) - L21 ;
+  INITIAL
+    L12 = 0.5 ;   L21 = 0.3 ;   x2 = 0.5 ;
+    g1 = 1.4 ;    g2 = 1.2 ;    lnG1inf = 1.0 ;
+END

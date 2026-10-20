@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **55%**
+Τρέχουσα συνολική κάλυψη: **56%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -71,6 +71,7 @@
 | ✅ | Flash / Q / TBUBBLE / TDEW / PBUBBLE / PDEW | `tests/test_properties.py` |
 | ✅ | Φάκελος φάσεων (bubble/dew καμπύλες) | `tests/test_envelope.py` |
 | ✅ | Κυβικά EOS (PR/SRK) ως μοντέλα + fugacity + επιλογή backend | `tests/test_cubic_eos.py` |
+| ✅ | Μοντέλα ενεργότητας (NRTL, Wilson) — γ-φ VLE, αζεότροπο | `tests/test_activity_models.py` |
 | ✅ | Θερμοδυναμική συνέπεια (Maxwell) | `tests/test_thermo_consistency.py` |
 | ✗ | gSAFT / Multiflash (εμπορικά — εκτός σκοπού) | — |
 | ✗ | UNIFAC / custom property packages | — |

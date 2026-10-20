@@ -137,7 +137,10 @@ def test_jacobian_matches_numerical():
     assert np.allclose(J_an, J_num, atol=1e-6)
 
 
-def test_nondifferentiable_function_falls_back():
+def test_nondifferentiable_function_handled():
+    """SIGN is not symbolically differentiable — the hybrid Jacobian gives
+    it a numeric central-difference row; either way the result must be
+    correct: SIGN(x) = 1 -> x > 0."""
     from backend.engine import run_model
     r = run_model("""
 MODEL M
@@ -148,7 +151,7 @@ MODEL M
 END
 """)
     assert r["results"]["success"]
-    assert r["results"]["method"] in ("HYBR", "LM")
+    assert r["results"]["values"]["x"] > 0.0
 
 
 def test_identical_results_with_and_without_jacobian():

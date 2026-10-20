@@ -18,40 +18,33 @@ import sympy as sp
 
 from ..parser.gproms_parser import Num, Str, Var, Deriv, UnOp, BinOp, Func, Indexed
 
-# Safe-domain guards as SMOOTH forms (built from |.|, never Piecewise):
-# Piecewise survives differentiation as select(...) constructs that break
-# numpy lambdify evaluation (scalar conditions in np.select); |.| becomes
-# np.abs / np.sign, which lambdify handles cleanly.
+# Safe-domain guards built from sp.Max/sp.Min: their derivatives are
+# Heaviside terms that lambdify cleanly to np.heaviside (no Piecewise
+# select constructs, no sign(x)/x singular forms).
 _CUT = sp.Float(1e-10)
-
-
-def _mx(x, c):
-    """Smooth max(x, c) = (x + c + |x - c|)/2; derivative
-    (1 + sign(x - c))/2 lambdifies to plain numpy."""
-    return (x + c + sp.Abs(x - c)) / 2
 
 
 def _safe_log(x):
     """Mirror of solver.safe_ln: log(x) for x>eps, linear extension below."""
-    m = _mx(x, _CUT)
-    return sp.log(m) + (x - _CUT - sp.Abs(x - _CUT)) / (2 * _CUT)
+    return sp.log(sp.Max(x, _CUT)) + sp.Min(x - _CUT, 0) / _CUT
 
 
 def _safe_log10(x):
     """Mirror of solver.safe_log10 (same linear-extension construction)."""
-    m = _mx(x, _CUT)
-    return sp.log(m, 10) + (x - _CUT - sp.Abs(x - _CUT)) / (
-        2 * _CUT * sp.log(10))
+    return (sp.log(sp.Max(x, _CUT), 10)
+            + sp.Min(x - _CUT, 0) / (_CUT * sp.log(10)))
 
 
 def _safe_sqrt(x):
     """Mirror of solver.safe_sqrt: sqrt(x) for x>0, else 0."""
-    return sp.sqrt(_mx(x, 0))
+    return sp.sqrt(sp.Max(x, 0))
 
 
 def _safe_exp(x):
-    """Mirror of solver.safe_exp: clipped at 700."""
-    return sp.exp(_mx(x, sp.Float(700.0)))
+    """Plain exp — the [-745, 700] clip lives only in the NUMERIC evaluator.
+    A symbolic Min cap makes sp.diff blow up exponentially on deep
+    expressions; overflow here is caught by the finite-Jacobian check."""
+    return sp.exp(x)
 
 
 _UNARY = {
@@ -193,9 +186,32 @@ class JacobianEvaluator:
                     if eq[0] == "eq":
                         i = rows_walked[0]
                         rows_walked[0] += 1
-                        args = [env[n] for n in self.rows[i][4]]
-                        base_cols, base_lam, der_present, der_lam, _ = \
-                            self.rows[i]
+                        row = self.rows[i]
+                        if row[0] == "num":
+                            # numeric central-difference row (property
+                            # functions and other non-differentiable leaves)
+                            _lhs, _rhs = row[1], row[2]
+                            for j in range(self.n):
+                                xj = float(env[self.names[j]])
+                                h = 1e-6 * max(1.0, abs(xj))
+                                e1 = dict(env)
+                                e1[self.names[j]] = xj + h
+                                e2 = dict(env)
+                                e2[self.names[j]] = xj - h
+                                try:
+                                    d = (float(_lhs(e1)) - float(_rhs(e1))
+                                         - (float(_lhs(e2))
+                                            - float(_rhs(e2)))) / (2 * h)
+                                except (ValueError, TypeError):
+                                    continue
+                                if np.isfinite(d):
+                                    ii.append(i)
+                                    jj.append(j)
+                                    vv.append(float(d))
+                            return
+                        base_cols, base_lam, der_present, der_lam, \
+                            used_names = row[1:]
+                        args = [env[n] for n in used_names]
                         if base_cols:
                             vals = np.asarray(base_lam(args), dtype=float)
                             for j, v in zip(base_cols, vals):
@@ -218,7 +234,8 @@ class JacobianEvaluator:
 
                 for e in self.structure:
                     walk(e)
-            except (ValueError, KeyError, IndexError, TypeError):
+            except (ValueError, KeyError, IndexError, TypeError,
+                    ArithmeticError):
                 return None
         n_rows = rows_walked[0]
         mat = spm.coo_matrix((vv, (ii, jj)), shape=(n_rows, self.n))
@@ -271,7 +288,10 @@ def compile_jacobian(compiled: list, names: List[str],
                 expr = (_to_sympy(eq[4], sym_of, array_sizes)
                         - _to_sympy(eq[5], sym_of, array_sizes))
             except Exception:
-                return False
+                # non-differentiable leaf (property functions, ...):
+                # fall back to a numeric central-difference row
+                rows.append(("num", eq[1], eq[2]))
+                return True
             # structural sparsity: only the columns whose symbols appear
             base_cols = [j for j, n in enumerate(names)
                          if syms[n] in expr.free_symbols]
@@ -290,9 +310,13 @@ def compile_jacobian(compiled: list, names: List[str],
                 used |= g.free_symbols
             used = sorted(used, key=str)
             used_names = [str(s) for s in used]
-            base_lam = sp.lambdify([used], g_base, "numpy")
-            der_lam = sp.lambdify([used], g_der, "numpy")
-            rows.append((base_cols, base_lam, der_present, der_lam,
+            try:
+                base_lam = sp.lambdify([used], g_base, "numpy")
+                der_lam = sp.lambdify([used], g_der, "numpy")
+            except Exception:
+                rows.append(("num", eq[1], eq[2]))
+                return True
+            rows.append(("sym", base_cols, base_lam, der_present, der_lam,
                          used_names))
             return True
         if eq[0] == "ineq":

@@ -1,0 +1,50 @@
+# ============================================================
+#  fgPROMS benchmark: NRTL activity-coefficient model for
+#  ethanol(1)–water(2) at 78.2 C — the classic azeotrope system.
+#  Parameters (cal/mol converted to SI):
+#      A12 = 3.4578 cal/mol = 14466 J/mol
+#      A21 = -0.8009 cal/mol = -3351 J/mol
+#      alpha = 0.30   (Renon/Prausnitz, widely published).
+#  The model sweeps x1 with FOR, computes gamma1/gamma2 and the
+#  modified-Raoult bubble line y1(x1); the test locates the
+#  azeotrope (x1 = y1) near x_az ~= 0.89-0.93 — the literature
+#  value for ethanol/water at 78.2 C is x_az = 0.8947.
+# ============================================================
+MODEL NRTLEthanolWater
+  PARAMETER
+    N   AS REAL DEFAULT 12
+    T   AS REAL DEFAULT 351.35     # K  (78.2 C)
+    A12 AS REAL DEFAULT 14466.0    # J/mol
+    A21 AS REAL DEFAULT -3351.0    # J/mol
+    alf AS REAL DEFAULT 0.30
+    R   AS REAL DEFAULT 8.314      # J/mol/K
+  VARIABLE
+    x1 AS ARRAY(12) OF REAL
+    y1 AS ARRAY(12) OF REAL DEFAULT 0.5
+    g1 AS ARRAY(12) OF REAL DEFAULT 1.2
+    g2 AS ARRAY(12) OF REAL DEFAULT 1.2
+    Pb AS ARRAY(12) OF REAL DEFAULT 1.0E5   # bubble pressure, Pa
+    t12 AS REAL
+    t21 AS REAL
+    G12 AS REAL
+    G21 AS REAL
+  EQUATION
+    t12 = A12 / (R * T) ;
+    t21 = A21 / (R * T) ;
+    G12 = EXP(-alf * t12) ;
+    G21 = EXP(-alf * t21) ;
+    FOR i := 1 TO 12 DO
+      x1(i) = i * (0.95 / N) ;
+      g1(i) = EXP((1 - x1(i))^2
+                  * (t21 * (G21/(x1(i) + (1 - x1(i))*G21))^2
+                     + t12 * G12 / ((1 - x1(i)) + x1(i)*G12)^2)) ;
+      g2(i) = EXP(x1(i)^2
+                  * (t12 * (G12/((1 - x1(i)) + x1(i)*G12))^2
+                     + t21 * G21 / (x1(i) + (1 - x1(i))*G21)^2)) ;
+      Pb(i) = x1(i)*g1(i)*PBUBBLE('Ethanol', T)
+              + (1 - x1(i))*g2(i)*PBUBBLE('Water', T) ;
+      y1(i) = x1(i) * g1(i) * PBUBBLE('Ethanol', T) / Pb(i) ;
+    END
+  INITIAL
+    t12 = 5.0 ;  t21 = -1.1 ;  G12 = 0.23 ;  G21 = 1.4 ;
+END
