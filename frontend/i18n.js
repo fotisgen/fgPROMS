@@ -233,6 +233,7 @@ const MSG = {
     err_units: "Ασυμβατότητα μονάδων στην εξίσωση «{eq}»: {dims}.",
     err_for_bounds: "Μη έγκυρα όρια στον βρόχο FOR (χρειάζονται σταθερές αριθμητικές τιμές).",
     err_for_nested: "Οι φωλιασμένοι βρόχοι FOR δεν υποστηρίζονται ακόμη.",
+    err_dynopt_no_controls: "Η δυναμική βελτιστοποίηση χρειάζεται τουλάχιστον μία παράμετρο ελέγχου: παράμετρο χωρίς DEFAULT, με BOUNDS (και χωρίς SET).",
   },
   en: {
     err_empty: "The file is empty. Write a gPROMS model.",
@@ -297,5 +298,6 @@ const MSG = {
     err_units: "Unit mismatch in equation “{eq}”: {dims}.",
     err_for_bounds: "Invalid FOR-loop bounds (constant numeric values required).",
     err_for_nested: "Nested FOR loops are not yet supported.",
+    err_dynopt_no_controls: "Dynamic optimisation needs at least one control parameter: a parameter without DEFAULT, with BOUNDS (and without SET).",
   },
 };

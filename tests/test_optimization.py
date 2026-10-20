@@ -155,7 +155,7 @@ MODEL M
 END
 """)
     assert r["results"] is None
-    assert has_msg(r, "err_opt_dynamic", "error")
+    assert has_msg(r, "err_dynopt_no_controls", "error")
 
 
 def test_objective_reported_in_model_json(run):

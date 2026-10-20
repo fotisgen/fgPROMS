@@ -80,7 +80,7 @@ def run_model(code: str) -> dict:
 
     # ---- optimization ------------------------------------------------------
     if info["_is_optimization"]:
-        if info["_dof"] == 0:
+        if info["_dof"] == 0 and not info.get("_dynopt_controls"):
             # degenerate case: system fully determined -> solve, then
             # evaluate the objective at the solution point
             res = solve_steady(model, info)

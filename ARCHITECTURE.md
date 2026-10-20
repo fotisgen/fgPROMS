@@ -145,6 +145,8 @@ AST → Pyomo + Ipopt (binaries μέσω `idaes get-extensions`, βλ. REPOS_REP
 ✓ M22     (ολοκληρώθηκε):  HiGHS (LP/MILP) + Ipopt 3.13.2 — το `idaes
                            get-extensions --insecure` ξεπέρασε το τοπικό
                            SSL interception (με checksum ενεργό)
+✓ M33     (ολοκληρώθηκε):  δυναμική βελτιστοποίηση (gOPT-lite: παράμετροι
+                           ελέγχου + objective στο τέλος της προσομοίωσης)
   αποτυγχάνει στο παρόν δίκτυο (SSL interception). Το SLSQP παραμένει και
   επαρκεί για τα εκπαιδευτικά NLP· το βήμα τεκμηριώνεται για μελλοντική
   ενεργοποίηση όταν υπάρχουν τα binaries.

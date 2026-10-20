@@ -644,6 +644,19 @@ def analyze(model: Model) -> dict:
             continue
         bounds_info[key] = (float(lo), float(hi))
 
+    # ---- dynamic optimisation (gOPT-lite): parameters with BOUNDS and no
+    #      SET value are the control variables; the objective is evaluated
+    #      at the END of the dynamic simulation -------------------------------
+    dynopt_controls: List[str] = []
+    if objective is not None and model.schedule:
+        for p in params:
+            key = p["lower"]
+            if (p["default_node"] is None and key in bounds_info
+                    and key not in fixed):
+                dynopt_controls.append(key)
+        # the "no controls" error is raised below (dynamic-optimisation
+        # gate)
+
     # ---- parameter estimation (DATA / ESTIMATE) -----------------------------
     is_estimation = bool(model.estimate)
     estimate_names: List[str] = []
@@ -780,8 +793,9 @@ def analyze(model: Model) -> dict:
                          "args": {"name": prop_used[0]}})
         blocked = True
 
-    if is_optimization and is_dynamic:
-        messages.append({"level": "error", "code": "err_opt_dynamic", "args": {}})
+    if is_optimization and is_dynamic and not dynopt_controls:
+        messages.append({"level": "error", "code": "err_dynopt_no_controls",
+                         "args": {}})
         blocked = True
 
     if dof < 0:
@@ -801,7 +815,7 @@ def analyze(model: Model) -> dict:
     else:
         messages.append({"level": "info", "code": "dof_zero",
                          "args": {"u": len(unknowns), "e": eq_count}})
-        if is_optimization:
+        if is_optimization and not dynopt_controls:
             messages.append({"level": "info", "code": "info_trivial_opt",
                              "args": {}})
 
@@ -883,6 +897,7 @@ def analyze(model: Model) -> dict:
         "_is_optimization": is_optimization,
         "_bounds": bounds_info,
         "_objective": objective,
+        "_dynopt_controls": dynopt_controls,
         "_array_sizes": array_sizes,
         "_is_estimation": is_estimation,
         "_estimate": estimate_names,

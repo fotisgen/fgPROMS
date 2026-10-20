@@ -1216,6 +1216,81 @@ def _try_ipopt(model: Model, info: dict, compiled: list, names: List[str],
             "maxResidual": maxr, "method": "IPOPT"}
 
 
+def _solve_dynamic_opt(model: Model, info: dict, controls: List[str],
+                       obj_fn, sign: float,
+                       bounds_map: Dict[str, tuple]) -> dict:
+    """gOPT-lite: black-box dynamic optimisation — the controls are
+    parameters, each candidate runs a full dynamic simulation and the
+    objective is evaluated at the final time point."""
+    x0 = np.array([info["_fixed_values"].get(c, 0.0) for c in controls],
+                  dtype=float)
+    bounds = [bounds_map.get(c, (None, None)) for c in controls]
+    obj_meta = info["_objective"]
+    best: Dict = {"obj": None}
+
+    def obj(x):
+        info2 = dict(info)
+        info2["_fixed_values"] = dict(info["_fixed_values"])
+        for c, v in zip(controls, x):
+            info2["_fixed_values"][c] = float(v)
+        try:
+            res = solve_dynamic(model, info2)
+        except Exception:
+            return 1e10
+        if not res["success"]:
+            return 1e10
+        ts = res.get("series")
+        env = dict(info2["_fixed_values"])
+        for n, vals in (ts.get("variables") or {}).items():
+            env[n] = float(vals[-1])
+        val = float(obj_fn(env))
+        if best["obj"] is None or val < best["obj"]:
+            best["obj"] = val
+            best["x"] = np.array(x, dtype=float)
+        return sign * val
+
+    try:
+        res = minimize(obj, x0, method="SLSQP", bounds=bounds,
+                       options={"maxiter": 200, "ftol": 1e-10})
+    except Exception as e:
+        return {"success": False,
+                "messages": [{"level": "error", "code": "optimize_failed",
+                              "args": {"detail": str(e)}}],
+                "values": None, "objective": None, "residuals": [],
+                "maxResidual": None, "method": "DYNOPT-SLSQP"}
+
+    xf = res.x if res.success or res.fun < obj(x0) else best["x"]
+    # final evaluation for reporting
+    info2 = dict(info)
+    info2["_fixed_values"] = dict(info["_fixed_values"])
+    for c, v in zip(controls, xf):
+        info2["_fixed_values"][c] = float(v)
+    sim = solve_dynamic(model, info2)
+    obj_value = None
+    if sim["success"]:
+        ts = sim.get("series")
+        env = dict(info2["_fixed_values"])
+        for n, vals in (ts.get("variables") or {}).items():
+            env[n] = float(vals[-1])
+        obj_value = float(obj_fn(env))
+
+    success = sim["success"] and obj_value is not None
+    messages = ([{"level": "info", "code": "optimize_ok",
+                  "args": {"method": "DYNOPT-SLSQP",
+                           "obj": f"{obj_value:.8g}",
+                           "res": "0.00e+00"}}]
+                if success else
+                [{"level": "error", "code": "optimize_failed",
+                  "args": {"detail": res.message or "dynamic simulation "
+                           "failed"}}])
+    values = ({c: float(v) for c, v in zip(controls, xf)} if success
+              else None)
+    return {"success": success, "messages": messages, "values": values,
+            "objective": {"kind": obj_meta["kind"], "value": obj_value},
+            "residuals": [], "maxResidual": 0.0,
+            "method": "DYNOPT-SLSQP"}
+
+
 def solve_optimize(model: Model, info: dict) -> dict:
     names: List[str] = info["_unknowns"]
     base: Dict[str, float] = dict(info["_fixed_values"])
@@ -1229,6 +1304,13 @@ def solve_optimize(model: Model, info: dict) -> dict:
     x0 = np.array([guesses.get(n, 0.0) for n in names], dtype=float)
 
     bounds = [(bounds_map.get(n, (None, None))) for n in names]
+
+    # ---- dynamic optimisation (gOPT-lite): controls are parameters, the
+    #      objective is the END state of the dynamic simulation -------------
+    dyn_controls = info.get("_dynopt_controls") or []
+    if dyn_controls:
+        return _solve_dynamic_opt(model, info, dyn_controls, obj_fn, sign,
+                                  bounds_map)
 
     # ---- HiGHS path: linear programs (and MILP with INTEGER variables) ---
     highs_res = _try_highs(model, info, compiled, names, base, sign,

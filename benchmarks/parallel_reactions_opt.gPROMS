@@ -1,0 +1,41 @@
+# ============================================================
+#  fgPROMS benchmark: dynamic optimisation (gOPT-lite)
+#  Parallel reactions   A -> B  (desired),  A -> C  (waste)
+#      k_B = k0b exp(-Eb/RT),   k_C = k0c exp(-Ec/RT)
+#  with Eb < Ec: low T favours B (selectivity) but is slow
+#  (conversion) — the optimal temperature is FINITE and in
+#  the interior of [300, 500] K.
+#  The temperature T is a PARAMETER without DEFAULT + BOUNDS:
+#  it becomes the control variable, and the objective CB is
+#  evaluated at the end of the dynamic simulation.
+#  Analytical solution (test):
+#      CB(tf) = kb/(kb+kc) * (1 - exp(-(kb+kc)*tf))
+#  verified independently in the test with a 1-D search.
+# ============================================================
+MODEL ParallelRxns
+  PARAMETER
+    k0b AS REAL DEFAULT 1.0E10
+    k0c AS REAL DEFAULT 1.0E11
+    Eb  AS REAL DEFAULT 60000.0
+    Ec  AS REAL DEFAULT 80000.0
+    R   AS REAL DEFAULT 8.314
+    Temp AS REAL               # CONTROL: no default!
+    tf  AS REAL DEFAULT 5.0    # limited time: rate vs selectivity trade-off
+  VARIABLE
+    CA AS REAL
+    CB AS REAL
+  EQUATION
+    $CA = -(k0b*EXP(-Eb/(R*Temp)) + k0c*EXP(-Ec/(R*Temp))) * CA ;
+    $CB = k0b*EXP(-Eb/(R*Temp)) * CA ;
+  INITIAL
+    CA = 1.0 ;
+    CB = 0.0 ;
+  BOUNDS
+    Temp : 300 : 500 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO tf STEP 0.1
+    END
+  OPTIMIZE
+    MAXIMIZE CB ;
+END
