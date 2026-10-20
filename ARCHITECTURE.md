@@ -147,6 +147,7 @@ AST → Pyomo + Ipopt (binaries μέσω `idaes get-extensions`, βλ. REPOS_REP
                            SSL interception (με checksum ενεργό)
 ✓ M33     (ολοκληρώθηκε):  δυναμική βελτιστοποίηση (gOPT-lite: παράμετροι
                            ελέγχου + objective στο τέλος της προσομοίωσης)
+✓ M34     (ολοκληρώθηκε):  CASE/SWITCH εξισώσεις + REINITIALIZE σε φάσεις
   αποτυγχάνει στο παρόν δίκτυο (SSL interception). Το SLSQP παραμένει και
   επαρκεί για τα εκπαιδευτικά NLP· το βήμα τεκμηριώνεται για μελλοντική
   ενεργοποίηση όταν υπάρχουν τα binaries.

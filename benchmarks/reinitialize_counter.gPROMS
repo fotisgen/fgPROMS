@@ -1,0 +1,30 @@
+# ============================================================
+#  fgPROMS benchmark: REINITIALIZE — discontinuous state reset
+#  at an event (the classic "counter reset").
+#  Phase Count: x grows at 1/s; at x > 10 the phase ends and
+#  REINITIALIZE resets x to 0. Phase Idle keeps growing x.
+#  Expected (verified in the test):
+#      x(1.0-) = 10.0   (event)
+#      x(1.0+) = 0.0    (jump, recorded as a duplicate-time point)
+#      x(3.0)  = 2.0    (1 s Count + 2 s Idle growth)
+# ============================================================
+MODEL CounterReset
+  VARIABLE
+    x AS REAL
+  TASK
+    PHASE Count
+      $x = 10 ;
+    END WHEN x > 10 ;
+    REINITIALIZE x WITH 0.0 ;
+    PHASE Idle
+      $x = 1 ;
+    END
+  END
+  INITIAL
+    x = 0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 2 WITH Count STEP 0.1
+      CONTINUE FOR t := 2 TO 3 WITH Idle STEP 0.1
+    END
+END

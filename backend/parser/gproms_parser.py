@@ -51,7 +51,7 @@ RESERVED = SECTION_KEYWORDS | {
     "CONTINUE", "FOR", "TO", "STEP", "SEQUENCE", "AS", "REAL", "INTEGER",
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN",
     "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
-    "WITH", "PHASE", "MATERIAL", "FROM", "FILE", "DO",
+    "WITH", "PHASE", "MATERIAL", "FROM", "FILE", "DO", "REINITIALIZE",
 }
 
 
@@ -281,7 +281,12 @@ class Phase:
     name: str
     equations: List[Equation]
     when: Optional[Node] = None      # END WHEN condition (event phase)
+    reinits: List[tuple] = None      # [(name, expr)] REINITIALIZE actions
     line: int = 0
+
+    def __post_init__(self):
+        if self.reinits is None:
+            self.reinits = []
 
 
 @dataclass
@@ -741,7 +746,11 @@ class Parser:
         while True:
             if self.at_kw("ELSE") or self.at_kw("END") or self.peek().kind == "EOF":
                 break
-            if self.peek().kind == "IDENT" and self.peek().value.upper() in SECTION_KEYWORDS:
+            if self.peek().kind == "IDENT" and (
+                    self.peek().value.upper() in SECTION_KEYWORDS
+                    or self.peek().value.upper() in ("PHASE",
+                                                     "REINITIALIZE",
+                                                     "WHEN")):
                 break
             if self.at_kw("FOR"):
                 self.next()
@@ -754,6 +763,40 @@ class Parser:
                 inner = self.parse_eq_list()
                 self.expect_kw("END")
                 eqs.append(ForEquation(var, lo, hi, inner))
+                continue
+            if self.at_kw("CASE"):
+                self.next()
+                expr = self.parse_expr()
+                self.expect_kw("OF")
+                cases: List[tuple] = []
+                else_eqs = None
+                while not self.at_kw("END"):
+                    self.expect_kw("WHEN")
+                    if self.at_kw("ELSE"):
+                        self.next()
+                        self.expect_op(":")
+                        else_eqs = self.parse_eq_list()
+                    else:
+                        val = self.parse_expr()
+                        self.expect_op(":")
+                        cases.append((val, self.parse_eq_list()))
+                self.expect_kw("END")
+                # expand to an IF/ELSE chain: the last CASE wins
+                chain = None
+                if else_eqs is not None:
+                    chain = IfEquation(Num(1.0), else_eqs, [])
+                for val, ceqs in reversed(cases):
+                    # boolean equality with a small tolerance:
+                    #   ABS(expr - val) < 1e-9
+                    cond = BinOp("<",
+                                 Func("ABS",
+                                      [BinOp("-", expr, val)]),
+                                 Num(1e-9))
+                    chain = IfEquation(cond, ceqs,
+                                       [chain] if chain is not None
+                                       else [])
+                if chain is not None:
+                    eqs.append(chain)
                 continue
             eqs.append(self.parse_equation())
             self.expect_op(";")
@@ -818,15 +861,23 @@ class Parser:
             self.expect_kw("PHASE")
             name_tok = self.expect_ident()
             eqs = self.parse_eq_list()
-            self.expect_kw("END")
             cond = None
+            reinits = []
+            self.expect_kw("END")     # phase-body END
             if self.at_kw("WHEN"):
                 self.next()
                 cond = self.parse_expr()
             if self.at_op(";"):
                 self.next()
+            while self.at_kw("REINITIALIZE"):
+                self.next()
+                nm = self.expect_ident().value.lower()
+                self.expect_kw("WITH")
+                val = self.parse_expr()
+                self.expect_op(";")
+                reinits.append((nm, val))
             phases[name_tok.value.lower()] = Phase(name_tok.value, eqs, cond,
-                                                   name_tok.line)
+                                                   reinits, name_tok.line)
         self.expect_kw("END")
         return phases
 

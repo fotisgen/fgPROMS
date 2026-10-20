@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **61%**
+Τρέχουσα συνολική κάλυψη: **64%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -32,9 +32,9 @@
 | ✅ | Βρόχοι FOR σε εξισώσεις | `tests/test_envelope.py` |
 | ✅ | TASK / PHASE / SCHEDULE / END WHEN | `tests/test_phases.py` |
 | ✗ | WITHIN (χρονικά παράθυρα στο SCHEDULE) | — |
-| ✗ | CASE / SWITCH | — |
+| ✅ | CASE / SWITCH εξισώσεις (επέκταση σε IF-αλυσίδα) | `tests/test_case_switch.py` |
 | ✗ | SELECTOR (επιλογή θερμοδυναμικής) | — |
-| ✗ | REINITIALIZE / RESTART | — |
+| ◐ | REINITIALIZE (RESTART όχι ακόμη) | `tests/test_reinitialize.py` |
 | ✗ | PIECEWISE γραμμικές εξισώσεις / πίνακες | — |
 | ✗ | ORDERED_SET | — |
 | ✗ | Τύποι STRING | — |

@@ -904,6 +904,19 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                                           "detail": emsg or "no convergence"}})
                 break
             ended_early = t_f < s1 - 1e-9
+            if ended_early and ph.reinits:
+                # REINITIALIZE actions fire at the event point
+                renv = dict(base)
+                renv[tv] = t_f
+                for n in allv:
+                    renv[n] = prev[n]
+                for rn, rnode in ph.reinits:
+                    prev[rn] = float(make_eval(rnode)(renv))
+                    renv[rn] = prev[rn]     # sequential semantics
+                # record the jump as a duplicate-time point
+                times.append(t_f)
+                for n in allv:
+                    series[n].append(prev[n])
             t_cur = t_f
     else:
         ok, t_f, prev, f_hand, emsg, mo = _integrate_phase(
