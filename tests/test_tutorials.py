@@ -55,3 +55,29 @@ def test_tutorial_results_match_claims():
     r = run_model(_extract_blocks(text)[0])
     assert abs(r["results"]["objective"]["value"] - 1.818181818) < 1e-5
     assert abs(r["results"]["values"]["v"] - 20.0) < 1e-4
+
+    text = (DOCS / "tutorial-07-thermodynamics.md").read_text(encoding="utf-8")
+    blocks = _extract_blocks(text)
+    # PR: Z = 0.708, phi = 0.770 (CoolProp PR backend references)
+    r = run_model(blocks[1])
+    assert abs(r["results"]["values"]["z"] - 0.708245) < 1e-3
+    assert abs(r["results"]["values"]["phi"] - 0.770374) < 1e-3
+    # Rankine: eta ~ 34%, first law Wt - Wp = Qb - Qc
+    r = run_model(blocks[2])
+    v = r["results"]["values"]
+    assert 0.30 < v["eta"] < 0.38
+    assert abs((v["wt"] - v["wp"]) - (v["qb"] - v["qc"])) < 1e-6
+
+    text = (DOCS / "tutorial-08-advanced-optimization.md").read_text(
+        encoding="utf-8")
+    blocks = _extract_blocks(text)
+    # LP: x = 2, y = 1, objective 8
+    r = run_model(blocks[0])
+    assert abs(r["results"]["values"]["x"] - 2.0) < 1e-9
+    assert abs(r["results"]["values"]["y"] - 1.0) < 1e-9
+    assert abs(r["results"]["objective"]["value"] - 8.0) < 1e-9
+    # MILP: 3xA + 1xB = 130
+    r = run_model(blocks[1])
+    assert abs(r["results"]["values"]["na"] - 3.0) < 1e-9
+    assert abs(r["results"]["values"]["nb"] - 1.0) < 1e-9
+    assert abs(r["results"]["objective"]["value"] - 130.0) < 1e-9
