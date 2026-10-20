@@ -24,4 +24,6 @@ MODEL HeatExchanger
     dTlm = ((Th_in - Tc_out) - (Th_out - Tc_in)) /
            LN((Th_in - Tc_out) / (Th_out - Tc_in)) ;
     Q = U * A * dTlm ;
+  INITIAL
+    Q = 300000 ;   Th_out = 60 ;   Tc_out = 20 ;   dTlm = 30 ;
 END

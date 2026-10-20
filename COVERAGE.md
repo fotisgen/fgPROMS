@@ -70,6 +70,7 @@
 | ✅ | Σύνθεση ως μεταβλητή: `CP('A&B', z, T, P)` | `tests/test_properties.py` (M25) |
 | ✅ | Flash / Q / TBUBBLE / TDEW / PBUBBLE / PDEW | `tests/test_properties.py` |
 | ✅ | Φάκελος φάσεων (bubble/dew καμπύλες) | `tests/test_envelope.py` |
+| ✅ | Κυβικά EOS (PR/SRK) ως μοντέλα + fugacity + επιλογή backend | `tests/test_cubic_eos.py` |
 | ✅ | Θερμοδυναμική συνέπεια (Maxwell) | `tests/test_thermo_consistency.py` |
 | ✗ | gSAFT / Multiflash (εμπορικά — εκτός σκοπού) | — |
 | ✗ | UNIFAC / custom property packages | — |

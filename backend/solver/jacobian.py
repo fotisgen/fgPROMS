@@ -18,33 +18,40 @@ import sympy as sp
 
 from ..parser.gproms_parser import Num, Str, Var, Deriv, UnOp, BinOp, Func, Indexed
 
+# Safe-domain guards as SMOOTH forms (built from |.|, never Piecewise):
+# Piecewise survives differentiation as select(...) constructs that break
+# numpy lambdify evaluation (scalar conditions in np.select); |.| becomes
+# np.abs / np.sign, which lambdify handles cleanly.
 _CUT = sp.Float(1e-10)
+
+
+def _mx(x, c):
+    """Smooth max(x, c) = (x + c + |x - c|)/2; derivative
+    (1 + sign(x - c))/2 lambdifies to plain numpy."""
+    return (x + c + sp.Abs(x - c)) / 2
 
 
 def _safe_log(x):
     """Mirror of solver.safe_ln: log(x) for x>eps, linear extension below."""
-    return sp.Piecewise(
-        (sp.log(x), x > _CUT),
-        (sp.log(_CUT) + (x - _CUT) / _CUT, True),
-    )
+    m = _mx(x, _CUT)
+    return sp.log(m) + (x - _CUT - sp.Abs(x - _CUT)) / (2 * _CUT)
 
 
 def _safe_log10(x):
-    """Mirror of solver.safe_log10."""
-    return sp.Piecewise(
-        (sp.log(x, 10), x > _CUT),
-        (sp.log(_CUT, 10) + (x - _CUT) / (_CUT * sp.log(10)), True),
-    )
+    """Mirror of solver.safe_log10 (same linear-extension construction)."""
+    m = _mx(x, _CUT)
+    return sp.log(m, 10) + (x - _CUT - sp.Abs(x - _CUT)) / (
+        2 * _CUT * sp.log(10))
 
 
 def _safe_sqrt(x):
     """Mirror of solver.safe_sqrt: sqrt(x) for x>0, else 0."""
-    return sp.Piecewise((sp.sqrt(x), x > 0), (0, True))
+    return sp.sqrt(_mx(x, 0))
 
 
 def _safe_exp(x):
-    """Mirror of solver.safe_exp: clipped to [-745, 700]."""
-    return sp.exp(sp.Min(x, sp.Float(700.0)))
+    """Mirror of solver.safe_exp: clipped at 700."""
+    return sp.exp(_mx(x, sp.Float(700.0)))
 
 
 _UNARY = {
@@ -57,6 +64,14 @@ _UNARY = {
     "COS": sp.cos,
     "TAN": sp.tan,
 }
+
+
+def _resolve_derivatives(expr: sp.Expr) -> sp.Expr:
+    """Evaluate unevaluated Derivative nodes (e.g. Abs -> sign) so the
+    expression is printable by the numpy codegen printer."""
+    return expr.replace(
+        lambda e: isinstance(e, sp.Derivative),
+        lambda e: e.doit())
 
 
 def _to_sympy(node, sym_of: Callable[[str], sp.Expr],
@@ -103,7 +118,7 @@ def _to_sympy(node, sym_of: Callable[[str], sp.Expr],
             idx = node.args[1]
             if not isinstance(idx, Var):
                 raise ValueError("SIGMA index must be a variable")
-            idx_sym = sp.Symbol(idx.name.lower())
+            idx_sym = sp.Symbol(idx.name.lower(), real=True)
 
             def idx_sym_of(name):
                 if name == idx.name.lower():
@@ -203,7 +218,7 @@ class JacobianEvaluator:
 
                 for e in self.structure:
                     walk(e)
-            except (ValueError, KeyError, IndexError):
+            except (ValueError, KeyError, IndexError, TypeError):
                 return None
         n_rows = rows_walked[0]
         mat = spm.coo_matrix((vv, (ii, jj)), shape=(n_rows, self.n))
@@ -227,9 +242,9 @@ def compile_jacobian(compiled: list, names: List[str],
     * `array_sizes`: base name -> array length, so symbolic indices inside
       SIGMA can be expanded to piecewise element lookups.
     """
-    syms: Dict[str, sp.Expr] = {n: sp.Symbol(n) for n in names}
-    dsyms: Dict[str, sp.Expr] = {d: sp.Symbol(d) for d in deriv_names}
-    psyms: Dict[str, sp.Expr] = {p: sp.Symbol(p) for p in param_names}
+    syms: Dict[str, sp.Expr] = {n: sp.Symbol(n, real=True) for n in names}
+    dsyms: Dict[str, sp.Expr] = {d: sp.Symbol(d, real=True) for d in deriv_names}
+    psyms: Dict[str, sp.Expr] = {p: sp.Symbol(p, real=True) for p in param_names}
     all_syms = [syms[n] for n in names] + [psyms[p] for p in param_names]
     array_sizes = array_sizes or {}
 
@@ -268,6 +283,8 @@ def compile_jacobian(compiled: list, names: List[str],
             g_base = [sp.diff(expr, syms[names[j]]) for j in base_cols]
             g_der = [sp.diff(expr, dsyms[deriv_names[j]])
                      for j in der_present]
+            g_base = [_resolve_derivatives(g) for g in g_base]
+            g_der = [_resolve_derivatives(g) for g in g_der]
             used = set()
             for g in g_base + g_der:
                 used |= g.free_symbols
@@ -335,7 +352,7 @@ def build_jacobian(compiled: list, names: List[str],
 def build_gradient(node, names: List[str], fixed: Dict[str, float]) -> Optional[Callable]:
     """Build grad(x) -> ndarray for an objective AST node, or None if the
     symbolic translation is not possible."""
-    syms: Dict[str, sp.Expr] = {n: sp.Symbol(n) for n in names}
+    syms: Dict[str, sp.Expr] = {n: sp.Symbol(n, real=True) for n in names}
 
     def sym_of(name: str) -> sp.Expr:
         if name in syms:
@@ -347,6 +364,7 @@ def build_gradient(node, names: List[str], fixed: Dict[str, float]) -> Optional[
     try:
         expr = _to_sympy(node, sym_of)
         grad = [sp.diff(expr, syms[n]) for n in names]
+        grad = [_resolve_derivatives(g) for g in grad]
         used = set()
         for g in grad:
             used |= g.free_symbols

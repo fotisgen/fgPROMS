@@ -61,7 +61,7 @@ _AS_METHODS = {
 
 
 def make_prop_call(name: str, fluid: str, arg_fns: List[Callable],
-                   comp_base: str = None) -> Callable:
+                   comp_base: str = None, backend: str = None) -> Callable:
     """Build a callable env -> float for a property function.
     Returns NaN when CoolProp is missing or the call fails.
 
@@ -69,16 +69,21 @@ def make_prop_call(name: str, fluid: str, arg_fns: List[Callable],
     * variable-composition form: comp_base is the base name of an ARRAY
       holding the mole fractions; the fluid is the pure-names form
       'n-Butane&Propane' (AbstractState / HEOS).
+    * backend form: an explicit equation-of-state backend (e.g. 'PR',
+      'SRK', 'HEOS', 'GERG2008') — properties come from that model via
+      AbstractState instead of the default PropsSI reference.
     """
     if not COOLPROP_AVAILABLE:
         return lambda env: float("nan")
 
     out_key, in_keys = _SPEC[name]
 
-    # ---- variable composition (AbstractState) --------------------------
-    if comp_base:
+    # ---- AbstractState path (variable composition and/or explicit
+    #      equation-of-state backend) -------------------------------------
+    if comp_base or backend:
+        AB = backend or "HEOS"
+        AS = AbstractState(AB, fluid)
         n_comp = fluid.count("&") + 1
-        AS = AbstractState("HEOS", fluid)
 
         def z_list(env):
             zz = [float(env.get(f"{comp_base}({k})", 0.0))
@@ -88,13 +93,30 @@ def make_prop_call(name: str, fluid: str, arg_fns: List[Callable],
                 return [1.0 / n_comp] * n_comp     # degenerate guess: uniform
             return [x / s for x in zz]             # CoolProp wants sum == 1
 
+        def set_comp(env):
+            if comp_base:
+                AS.set_mole_fractions(z_list(env))
+            elif n_comp > 1:
+                AS.set_mole_fractions([1.0 / n_comp] * n_comp)
+
+        if name in _FLUID_ONLY:
+            crit = {"TC": "Tcrit", "PC": "pcrit", "M": "molar_mass"}[name]
+
+            def fn(env, _c=crit):
+                try:
+                    set_comp(env)
+                    return float(getattr(AS, _c)())
+                except Exception:
+                    return float("nan")
+            return fn
+
         if name in _FIXED_Q:
             q_val = _FIXED_Q[name]
             in1 = in_keys[0]
 
             def fn(env, _q=q_val, _f=arg_fns[0], _in1=in1):
                 try:
-                    AS.set_mole_fractions(z_list(env))
+                    set_comp(env)
                     v = float(_f(env))
                     if _in1 == "P":
                         AS.update(PQ_INPUTS, v, _q)
@@ -107,13 +129,13 @@ def make_prop_call(name: str, fluid: str, arg_fns: List[Callable],
 
         method = _AS_METHODS[name]
 
-        def fn(env, _f=arg_fns):
+        def fn(env, _f=arg_fns, _m=method):
             try:
-                AS.set_mole_fractions(z_list(env))
+                set_comp(env)
                 T = float(_f[0](env))
                 P = float(_f[1](env))
                 AS.update(PT_INPUTS, P, T)
-                return float(getattr(AS, method)())
+                return float(getattr(AS, _m)())
             except Exception:
                 return float("nan")
         return fn

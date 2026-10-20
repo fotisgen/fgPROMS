@@ -1,0 +1,44 @@
+# ============================================================
+#  fgPROMS benchmark: Peng–Robinson (1976) cubic equation of
+#  state IMPLEMENTED IN THE MODELLING LANGUAGE.
+#  The compressibility Z is solved from the cubic and the
+#  fugacity coefficient follows analytically — the whole
+#  classic derivation is visible to the student.
+#  Verified in tests against CoolProp's own PR backend
+#  (AbstractState('PR', 'n-Butane')).
+# ============================================================
+MODEL PengRobinson
+  PARAMETER
+    Tc AS REAL DEFAULT 425.125    # K   (n-butane)
+    Pc AS REAL DEFAULT 3.796E6    # Pa
+    w  AS REAL DEFAULT 0.201      # acentric factor
+    T  AS REAL DEFAULT 400.0      # K
+    P  AS REAL DEFAULT 2.0E6      # Pa
+    R  AS REAL DEFAULT 8.314
+  VARIABLE
+    kappa AS REAL
+    alpha AS REAL
+    ac    AS REAL                 # a(T)  — attraction parameter
+    bc    AS REAL                 # b     — covolume
+    Apr   AS REAL                 # A = aP/(RT)^2
+    Bpr   AS REAL                 # B = bP/(RT)
+    Z     AS REAL
+    phi   AS REAL
+  EQUATION
+    kappa = 0.37464 + 1.54226 * w - 0.26992 * w^2 ;
+    alpha = (1 + kappa * (1 - SQRT(T / Tc)))^2 ;
+    ac = 0.45724 * R^2 * Tc^2 / Pc * alpha ;
+    bc = 0.07780 * R * Tc / Pc ;
+    Apr = ac * P / (R^2 * T^2) ;
+    Bpr = bc * P / (R * T) ;
+    Z^3 - (1 - Bpr) * Z^2 + (Apr - 2*Bpr - 3*Bpr^2) * Z
+        - (Apr*Bpr - Bpr^2 - Bpr^3) = 0 ;
+    phi = EXP(Z - 1 - LN(Z - Bpr)
+          - Apr / (2 * SQRT(2) * Bpr)
+            * LN((Z + (1 + SQRT(2)) * Bpr) / (Z + (1 - SQRT(2)) * Bpr))) ;
+  INITIAL
+    kappa = 0.674 ;  alpha = 1.041 ;
+    ac = 1.566 ;     bc = 7.25E-5 ;
+    Apr = 0.283 ;    Bpr = 0.0436 ;
+    Z = 0.7 ;        phi = 0.77 ;
+END

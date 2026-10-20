@@ -1,0 +1,37 @@
+# ============================================================
+#  fgPROMS benchmark: Soave–Redlich–Kwong cubic EOS in the
+#  modelling language (n-butane).
+#  Verified against CoolProp's SRK backend.
+# ============================================================
+MODEL SoaveRedlichKwong
+  PARAMETER
+    Tc AS REAL DEFAULT 425.125    # K   (n-butane)
+    Pc AS REAL DEFAULT 3.796E6    # Pa
+    w  AS REAL DEFAULT 0.201
+    T  AS REAL DEFAULT 400.0
+    P  AS REAL DEFAULT 2.0E6
+    R  AS REAL DEFAULT 8.314
+  VARIABLE
+    kappa AS REAL
+    alpha AS REAL
+    ac    AS REAL                 # a(T)
+    bc    AS REAL                 # b
+    Asrk  AS REAL                 # A = aP/(RT)^2
+    Bsrk  AS REAL                 # B = bP/(RT)
+    Z     AS REAL
+    phi   AS REAL
+  EQUATION
+    kappa = 0.480 + 1.574 * w - 0.176 * w^2 ;
+    alpha = (1 + kappa * (1 - SQRT(T / Tc)))^2 ;
+    ac = 0.42748 * R^2 * Tc^2 / Pc * alpha ;
+    bc = 0.08664 * R * Tc / Pc ;
+    Asrk = ac * P / (R^2 * T^2) ;
+    Bsrk = bc * P / (R * T) ;
+    Z^3 - Z^2 + (Asrk - Bsrk - Bsrk^2) * Z - Asrk * Bsrk = 0 ;
+    phi = EXP(Z - 1 - LN(Z - Bsrk) - (Asrk / Bsrk) * LN(1 + Bsrk / Z)) ;
+  INITIAL
+    kappa = 0.789 ;  alpha = 1.048 ;
+    ac = 1.474 ;     bc = 8.07E-5 ;
+    Asrk = 0.267 ;   Bsrk = 0.0485 ;
+    Z = 0.7 ;        phi = 0.79 ;
+END

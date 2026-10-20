@@ -1,0 +1,62 @@
+# ============================================================
+#  fgPROMS benchmark: Peng–Robinson for a BINARY MIXTURE with
+#  classical van der Waals mixing rules (k12 = 0) — the mixing
+#  and component-fugacity equations fully visible.
+#  Verified against CoolProp's PR backend (Z, phi1, phi2).
+# ============================================================
+MODEL PengRobinsonMix
+  PARAMETER
+    Tc1 AS REAL DEFAULT 425.125    # n-butane
+    Pc1 AS REAL DEFAULT 3.796E6
+    w1  AS REAL DEFAULT 0.201
+    Tc2 AS REAL DEFAULT 369.89     # propane
+    Pc2 AS REAL DEFAULT 4.2512E6
+    w2  AS REAL DEFAULT 0.1521
+    T   AS REAL DEFAULT 400.0
+    P   AS REAL DEFAULT 2.0E6
+    R   AS REAL DEFAULT 8.314
+    z1  AS REAL DEFAULT 0.4
+  VARIABLE
+    z2    AS REAL
+    ac1   AS REAL
+    bc1   AS REAL
+    ac2   AS REAL
+    bc2   AS REAL
+    am    AS REAL
+    bm    AS REAL
+    Apr   AS REAL
+    Bpr   AS REAL
+    Z     AS REAL
+    phi1  AS REAL
+    phi2  AS REAL
+  EQUATION
+    z2 = 1 - z1 ;
+    ac1 = 0.45724 * R^2 * Tc1^2 / Pc1
+          * (1 + (0.37464 + 1.54226*w1 - 0.26992*w1^2)
+                * (1 - SQRT(T/Tc1)))^2 ;
+    bc1 = 0.07780 * R * Tc1 / Pc1 ;
+    ac2 = 0.45724 * R^2 * Tc2^2 / Pc2
+          * (1 + (0.37464 + 1.54226*w2 - 0.26992*w2^2)
+                * (1 - SQRT(T/Tc2)))^2 ;
+    bc2 = 0.07780 * R * Tc2 / Pc2 ;
+    am = z1^2 * ac1 + 2 * z1 * z2 * SQRT(ac1 * ac2) + z2^2 * ac2 ;
+    bm = z1 * bc1 + z2 * bc2 ;
+    Apr = am * P / (R^2 * T^2) ;
+    Bpr = bm * P / (R * T) ;
+    Z^3 - (1 - Bpr) * Z^2 + (Apr - 2*Bpr - 3*Bpr^2) * Z
+        - (Apr*Bpr - Bpr^2 - Bpr^3) = 0 ;
+    phi1 = EXP(bc1/bm*(Z-1) - LN(Z-Bpr)
+           - Apr/(2*SQRT(2)*Bpr)
+             * (2*(z1*ac1 + z2*SQRT(ac1*ac2))/am - bc1/bm)
+             * LN((Z + (1+SQRT(2))*Bpr) / (Z + (1-SQRT(2))*Bpr))) ;
+    phi2 = EXP(bc2/bm*(Z-1) - LN(Z-Bpr)
+           - Apr/(2*SQRT(2)*Bpr)
+             * (2*(z1*SQRT(ac1*ac2) + z2*ac2)/am - bc2/bm)
+             * LN((Z + (1+SQRT(2))*Bpr) / (Z + (1-SQRT(2))*Bpr))) ;
+  INITIAL
+    ac1 = 1.566 ;  bc1 = 7.25E-5 ;
+    ac2 = 0.969 ;  bc2 = 5.63E-5 ;
+    am = 1.191 ;   bm = 6.28E-5 ;
+    Apr = 0.215 ;  Bpr = 0.0377 ;
+    Z = 0.8 ;      phi1 = 0.78 ;  phi2 = 0.87 ;
+END

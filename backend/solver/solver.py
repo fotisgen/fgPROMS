@@ -138,6 +138,11 @@ def make_eval(node) -> object:
             fluid = node.args[0].value
             rest = node.args[1:]
             comp_base = None
+            backend = None
+            # optional explicit EOS backend: CP('n-Butane', T, P, 'PR')
+            if rest and isinstance(rest[-1], Str):
+                backend = rest[-1].value
+                rest = rest[:-1]
             # variable-composition form: CP('A&B', z, T, P) — the fluid is
             # the pure-names form and z is the mole-fraction array
             if "&" in fluid and "[" not in fluid and rest:
@@ -150,7 +155,8 @@ def make_eval(node) -> object:
                     comp_base = rest[0].name.lower()
                     rest = rest[1:]
             arg_fns = [make_eval(a) for a in rest]
-            fn = make_prop_call(node.name, fluid, arg_fns, comp_base=comp_base)
+            fn = make_prop_call(node.name, fluid, arg_fns,
+                                comp_base=comp_base, backend=backend)
         elif node.name == "SIGMA" and len(node.args) == 4:
             expr_fn = make_eval(node.args[0])
             idx_name = (node.args[1].name.lower()
