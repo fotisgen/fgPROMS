@@ -1,0 +1,22 @@
+# ============================================================
+#  fgPROMS benchmark: isothermal plug-flow reactor (PFR)
+#  First-order reaction, steady state:
+#      u * dCA/dz = -k * CA,    CA(0) = CAin
+#  Analytical solution: CA(z) = CAin * exp(-k z / u)
+#  — verified pointwise in the test (2nd-order discretisation).
+# ============================================================
+MODEL PlugFlowReactor
+  PARAMETER
+    L    AS REAL DEFAULT 1.0
+    u    AS REAL DEFAULT 0.5
+    k    AS REAL DEFAULT 2.0
+    CAin AS REAL DEFAULT 1.0
+  DISTRIBUTION
+    Axial : L : 21 ;
+  VARIABLE
+    CA AS DISTRIBUTION(Axial) OF REAL DEFAULT 0.8
+  EQUATION
+    u * PARTIAL(CA, Axial) = -k * CA ;
+  BOUNDARY
+    CA = CAin AT Axial = 0 ;
+END

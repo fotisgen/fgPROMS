@@ -1,0 +1,22 @@
+# ============================================================
+#  fgPROMS library: isothermal plug-flow reactor (1D axial)
+#  First-order kinetics. SET/connect k, u, L, CAin; the exit
+#  concentration CA_out is the last axial point.
+# ============================================================
+MODEL PFR
+  PARAMETER
+    L    AS REAL DEFAULT 1.0
+    u    AS REAL DEFAULT 0.5
+    k    AS REAL DEFAULT 2.0
+    CAin AS REAL DEFAULT 1.0
+  DISTRIBUTION
+    Axial : L : 21 ;
+  VARIABLE
+    CA AS DISTRIBUTION(Axial) OF REAL DEFAULT 0.8
+    CAout AS REAL
+  EQUATION
+    u * PARTIAL(CA, Axial) = -k * CA ;
+    CAout = CA(21) ;
+  BOUNDARY
+    CA = CAin AT Axial = 0 ;
+END

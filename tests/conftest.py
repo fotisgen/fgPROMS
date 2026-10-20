@@ -11,10 +11,12 @@ from backend.engine import run_model  # noqa: E402
 
 EXAMPLES = ROOT / "examples"
 BENCHMARKS = ROOT / "benchmarks"
+LIBRARY = ROOT / "library"
 
 
 def load_model(name: str, folder: str = "benchmarks") -> str:
-    base = BENCHMARKS if folder == "benchmarks" else EXAMPLES
+    base = {"benchmarks": BENCHMARKS, "examples": EXAMPLES,
+            "library": LIBRARY}[folder]
     return (base / name).read_text(encoding="utf-8")
 
 

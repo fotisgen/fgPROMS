@@ -100,7 +100,7 @@ def _stencil(var_name: str, pt: Dict[str, int], dom: str, order: int,
                        [_num(idx if dd == dom else pt[dd]) for dd in dims])
 
     at_first = (edge == dom and k == 1)
-    at_last = (edge == dom and k == n)
+    at_last = (edge == dom and k == n) or (order == 1 and k == n)
     if at_first:
         if order == 1:
             return _div(BinOp("-", T_at(2), T_at(1)), _num(dz))
@@ -176,6 +176,47 @@ def _expand_eq(eq, pt, domains, dist_vars, edge) -> Equation:
         _expand_at(eq.cond, pt, domains, dist_vars, edge),
         [_expand_eq(e, pt, domains, dist_vars, edge) for e in eq.then_eqs],
         [_expand_eq(e, pt, domains, dist_vars, edge) for e in eq.else_eqs])
+
+
+def _has_order1_partial(eq) -> bool:
+    found = False
+
+    def walk(node):
+        nonlocal found
+        if found:
+            return
+        if isinstance(node, Func):
+            if node.name == "PARTIAL" and len(node.args) == 2:
+                found = True
+                return
+            for a in node.args:
+                walk(a)
+        elif isinstance(node, BinOp):
+            walk(node.l)
+            walk(node.r)
+        elif isinstance(node, UnOp):
+            walk(node.x)
+        elif isinstance(node, IfExpr):
+            walk(node.cond)
+            walk(node.then)
+            walk(node.els)
+
+    if isinstance(eq, EqEquation):
+        walk(eq.lhs)
+        walk(eq.rhs)
+    else:
+        walk(eq.cond)
+        for e in eq.then_eqs + eq.else_eqs:
+            if not found:
+                found = _has_order1_partial(e)
+    return found
+
+
+def _edge_dom(involved: List[str],
+              domains: Dict[str, DomainInfo]) -> str:
+    """Edge domain for the last-point backward stencil (the LAST
+    domain listed, matching the stencil's edge semantics)."""
+    return involved[-1] if involved else None
 
 
 def _product_interior(doms: List[str],
@@ -306,8 +347,18 @@ def expand_equations(model: Model, domains: Dict[str, DomainInfo],
                     raise ValueError(f"undeclared distribution domain {d}")
                 if d not in involved:
                     involved.append(d)
+        last_pt = None
+        if _has_order1_partial(eq):
+            # first-order PDE: cover points 2..n with a backward
+            # difference at n; point 1 is set by the boundary
+            last_pt = {}
+            for d in involved:
+                last_pt[d] = domains[d].points
         for pt in _product_interior(involved, domains):
             out.append(_expand_eq(eq, pt, domains, dist_vars, None))
+        if last_pt is not None:
+            out.append(_expand_eq(eq, last_pt, domains, dist_vars,
+                                   _edge_dom(involved, domains)))
 
     seen: Set[str] = set()
     for bc in model.boundaries:

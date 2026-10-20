@@ -89,7 +89,7 @@
 | ✅ | Επίλυση συνδεσιμότητας + DOF | `tests/test_flowsheet.py` |
 | ✅ | Βιβλιοθήκη: heater, mixer, splitter, pump, flash_drum | `tests/test_library.py`, `tests/test_thermo_consistency.py` |
 | ◐ | Στήλη απόσταξης (McCabe-Thiele, σταθερή σχετική πτητικότητα) | `tests/test_distillation.py` |
-| ✗ | Αντιδραστήρες PFR / σειρές CSTR | — |
+| ◐ | Αντιδραστήρες PFR (ισοθερμοκρασιακός, 1ης τάξης) | `tests/test_pfr.py` |
 | ✗ | Ελεγκτές PID | — |
 | ✗ | Εναλλάκτες λεπτομερείς (UA, LMTD) | — |
 | ◐ | Recycle/tearing (ταυτόχρονη επίλυση, χωρίς dedicated tearing) | `tests/test_flowsheet.py` |
