@@ -410,6 +410,59 @@ def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, floa
         except Exception:
             continue
 
+    if sol is None and len(names) <= 50:
+        # ---- robust initialisation: homotopy continuation ----------------
+        # F_h(x, lam) = lam*F(x) + (1-lam)*(x - x_anchor): from the trivial
+        # root x = x0 (lam=0) to the real system (lam=1)
+        try:
+            x_cur = np.array(x0, dtype=float)
+            for lam in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0):
+                x_anchor = x_cur.copy()
+
+                def fun_h(x, _lam=lam, _xa=x_anchor):
+                    return _lam * fun(x) + (1.0 - _lam) * (x - _xa)
+
+                cand = root(fun_h, x_cur, method="hybr",
+                            options={"maxfev": 1000})
+                if not cand.success:
+                    raise RuntimeError("homotopy step failed")
+                x_cur = cand.x
+            env_c = dict(base)
+            if time_var:
+                env_c[time_var] = t
+            for n, v in zip(names, x_cur):
+                env_c[n] = float(v)
+            rc, _ = residuals(compiled, env_c)
+            if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                sol = cand
+                method = "HOMOTOPY"
+        except Exception:
+            pass
+
+    if sol is None and len(names) <= 50:
+        # ---- multi-start with randomised restarts -------------------------
+        try:
+            rng = np.random.default_rng(42)
+            scale = np.maximum(np.abs(np.array(x0, dtype=float)), 1.0)
+            for _ in range(8):
+                x_try = np.array(x0, dtype=float) \
+                    + scale * rng.normal(0.0, 2.0, len(names))
+                cand = root(fun, x_try, method="hybr",
+                            options={"maxfev": 1500})
+                if cand.success:
+                    env_c = dict(base)
+                    if time_var:
+                        env_c[time_var] = t
+                    for n, v in zip(names, cand.x):
+                        env_c[n] = float(v)
+                    rc, _ = residuals(compiled, env_c)
+                    if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                        sol = cand
+                        method = "MULTISTART"
+                        break
+        except Exception:
+            pass
+
     if sol is None:
         try:
             r, _ = residuals(compiled, {**base, **{n: x0_map.get(n, 0.0) for n in names}})
