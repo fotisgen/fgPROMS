@@ -70,7 +70,7 @@ def _sign(x: float) -> float:
 
 
 SUPPORTED_FUNCS = {"EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN",
-                   "SIGN", "MAX", "MIN", "SIGMA"}
+                   "SIGN", "MAX", "MIN", "SIGMA", "PIECEWISE"}
 
 _UNARY_FUNCS = {
     "EXP": safe_exp, "LN": safe_ln, "LOG": safe_log10, "SQRT": safe_sqrt,
@@ -190,6 +190,26 @@ def make_eval(node) -> object:
             fs = [make_eval(a) for a in node.args]
             u = max if node.name == "MAX" else min
             fn = lambda env, _fs=fs, _u=u: _u(f(env) for f in _fs)
+        elif node.name == "PIECEWISE" and len(node.args) >= 5 \
+                and len(node.args) % 2 == 1:
+            x_fn = make_eval(node.args[0])
+            pairs = [(make_eval(node.args[k]), make_eval(node.args[k + 1]))
+                     for k in range(1, len(node.args), 2)]
+
+            def fn(env, _x=x_fn, _pairs=pairs):
+                x = float(_x(env))
+                pts = sorted((float(xf(env)), float(yf(env)))
+                             for xf, yf in _pairs)
+                if x <= pts[0][0]:
+                    return pts[0][1]
+                if x >= pts[-1][0]:
+                    return pts[-1][1]
+                for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+                    if x0 <= x <= x1:
+                        if x1 == x0:
+                            return (y0 + y1) / 2.0
+                        return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+                return pts[-1][1]
         else:
             fn = lambda env: 0.0
     elif isinstance(node, Indexed):

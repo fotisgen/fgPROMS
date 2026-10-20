@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **72%**
+Τρέχουσα συνολική κάλυψη: **75%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -35,7 +35,7 @@
 | ✅ | CASE / SWITCH εξισώσεις (επέκταση σε IF-αλυσίδα) | `tests/test_case_switch.py` |
 | ✅ | SELECTOR (επιλογή EOS backend σε όλα τα property calls) | `tests/test_language_extras.py` |
 | ◐ | REINITIALIZE (RESTART όχι ακόμη) | `tests/test_reinitialize.py` |
-| ✗ | PIECEWISE γραμμικές εξισώσεις / πίνακες | — |
+| ✅ | PIECEWISE γραμμικές εξισώσεις (παρεμβολή πίνακα) | `tests/test_heat_exchanger_piecewise.py` |
 | ✗ | ORDERED_SET | — |
 | ✅ | Τύποι STRING (παραμετροποίηση ρευστών κ.λπ.) | `tests/test_language_extras.py` |
 | ◐ | Μονάδες: διαστατικός έλεγχος κάθε εξίσωσης (χωρίς μετατροπές) | `tests/test_units.py` |
@@ -91,7 +91,7 @@
 | ◐ | Στήλη απόσταξης (McCabe-Thiele, σταθερή σχετική πτητικότητα) | `tests/test_distillation.py` |
 | ◐ | Αντιδραστήρες PFR (ισοθερμοκρασιακός, 1ης τάξης) | `tests/test_pfr.py` |
 | ◐ | Ελεγκτές P/PI (κλειστός βρόχος στάθμης) | `tests/test_control.py` |
-| ✗ | Εναλλάκτες λεπτομερείς (UA, LMTD) | — |
+| ✅ | Εναλλάκτες λεπτομερείς (UA, LMTD) | `tests/test_heat_exchanger_piecewise.py` |
 | ◐ | Recycle/tearing (ταυτόχρονη επίλυση, χωρίς dedicated tearing) | `tests/test_flowsheet.py` |
 | ✅ | Ισοζύγια μάζας/ενέργειας μονάδων | `tests/test_flowsheet.py` |
 

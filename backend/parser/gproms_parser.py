@@ -364,7 +364,7 @@ _SYM = {"**": "^"}
 # function names (math + properties) — anything else followed by '(' is an
 # indexed array access like z(1)
 FUNC_NAMES = {"EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN", "SIGN",
-              "MAX", "MIN", "SIGMA", "PARTIAL", "INT",
+              "MAX", "MIN", "SIGMA", "PARTIAL", "INT", "PIECEWISE",
               "CP", "CV", "RHO", "H", "S", "VISC", "TC", "PC", "M",
               "U", "G", "Q", "TBUBBLE", "TDEW", "PBUBBLE", "PDEW"}
 

@@ -1,0 +1,34 @@
+# ============================================================
+#  fgPROMS library: counter-current heat exchanger (UA/LMTD)
+#  Overall energy balances + logarithmic mean temperature
+#  difference design equation. SET the inlet temperatures and
+#  the duty follows.
+# ============================================================
+MODEL HeatExchangerUA
+  PARAMETER
+    U   AS REAL DEFAULT 500.0    # overall heat transfer coefficient W/m2/K
+    A   AS REAL DEFAULT 20.0     # area, m2
+    mh  AS REAL DEFAULT 2.0      # hot flow, kg/s
+    mc  AS REAL DEFAULT 3.0      # cold flow, kg/s
+    cph AS REAL DEFAULT 4200.0   # hot heat capacity, J/kg/K
+    cpc AS REAL DEFAULT 4180.0   # cold heat capacity, J/kg/K
+    Thi AS REAL DEFAULT 80.0     # hot inlet, C
+    Tci AS REAL DEFAULT 15.0     # cold inlet, C
+  VARIABLE
+    Q    AS REAL                 # duty, W
+    Tho  AS REAL                 # hot outlet, C
+    Tco  AS REAL                 # cold outlet, C
+    dT1  AS REAL                 # Thi - Tco (counter-current end 1)
+    dT2  AS REAL                 # Tho - Tci (counter-current end 2)
+    LMTD AS REAL
+  EQUATION
+    Q = mh * cph * (Thi - Tho) ;
+    Q = mc * cpc * (Tco - Tci) ;
+    dT1 = Thi - Tco ;
+    dT2 = Tho - Tci ;
+    LMTD = (dT1 - dT2) / LN(dT1 / dT2) ;
+    Q = U * A * LMTD ;
+  INITIAL
+    Q = 300000.0 ;  Tho = 60.0 ;  Tco = 20.0 ;  LMTD = 30.0 ;
+    dT1 = 50.0 ;    dT2 = 45.0 ;
+END
