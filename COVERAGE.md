@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **78%**
+Τρέχουσα συνολική κάλυψη: **79%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -34,7 +34,7 @@
 | ◐ | WITHIN (χρονικά παράθυρα στο SCHEDULE — συντακτική υποστήριξη) | `tests/test_language_extras.py` |
 | ✅ | CASE / SWITCH εξισώσεις (επέκταση σε IF-αλυσίδα) | `tests/test_case_switch.py` |
 | ✅ | SELECTOR (επιλογή EOS backend σε όλα τα property calls) | `tests/test_language_extras.py` |
-| ◐ | REINITIALIZE (RESTART όχι ακόμη) | `tests/test_reinitialize.py` |
+| ✅ | REINITIALIZE + RESTART σε φάσεις | `tests/test_reinitialize.py`, `tests/test_transport_restart.py` |
 | ✅ | PIECEWISE γραμμικές εξισώσεις (παρεμβολή πίνακα) | `tests/test_heat_exchanger_piecewise.py` |
 | ✗ | ORDERED_SET | — |
 | ✅ | Τύποι STRING (παραμετροποίηση ρευστών κ.λπ.) | `tests/test_language_extras.py` |
@@ -78,7 +78,7 @@
 | ✅ | Θερμοδυναμική συνέπεια (Maxwell) | `tests/test_thermo_consistency.py` |
 | ✗ | gSAFT / Multiflash (εμπορικά — εκτός σκοπού) | — |
 | ✗ | UNIFAC / custom property packages | — |
-| ◐ | Ιδιότητες μεταφοράς (μόνο VISC) | `backend/properties.py` |
+| ✅ | Ιδιότητες μεταφοράς (VISC, COND αγωγιμότητα, ST επιφανειακή τάση) | `tests/test_transport_restart.py` |
 | ✗ | Στερεά / ηλεκτρολύτες | — |
 
 ## Ομάδα Δ — Flowsheets / βιβλιοθήκη μονάδων (βάρος 10%)

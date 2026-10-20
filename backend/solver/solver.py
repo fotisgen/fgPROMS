@@ -978,7 +978,7 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                                           "detail": emsg or "no convergence"}})
                 break
             ended_early = t_f < s1 - 1e-9
-            if ended_early and ph.reinits:
+            if ended_early and (ph.reinits or ph.restart):
                 # REINITIALIZE actions fire at the event point
                 renv = dict(base)
                 renv[tv] = t_f
@@ -987,6 +987,11 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
                 for rn, rnode in ph.reinits:
                     prev[rn] = float(make_eval(rnode)(renv))
                     renv[rn] = prev[rn]     # sequential semantics
+                if ph.restart:
+                    # RESTART: reset every state to its INITIAL value
+                    guesses = info.get("_initial_guess") or {}
+                    for s in states:
+                        prev[s] = float(guesses.get(s, 0.0))
                 # record the jump as a duplicate-time point
                 times.append(t_f)
                 for n in allv:

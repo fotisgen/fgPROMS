@@ -52,6 +52,7 @@ RESERVED = SECTION_KEYWORDS | {
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN", "STRING",
     "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
     "WITH", "PHASE", "MATERIAL", "FROM", "FILE", "DO", "REINITIALIZE",
+    "RESTART",
 }
 
 
@@ -283,6 +284,7 @@ class Phase:
     equations: List[Equation]
     when: Optional[Node] = None      # END WHEN condition (event phase)
     reinits: List[tuple] = None      # [(name, expr)] REINITIALIZE actions
+    restart: bool = False          # RESTART: reset states to INITIAL
     line: int = 0
 
     def __post_init__(self):
@@ -366,7 +368,8 @@ _SYM = {"**": "^"}
 FUNC_NAMES = {"EXP", "LN", "LOG", "SQRT", "ABS", "SIN", "COS", "TAN", "SIGN",
               "MAX", "MIN", "SIGMA", "PARTIAL", "INT", "PIECEWISE",
               "CP", "CV", "RHO", "H", "S", "VISC", "TC", "PC", "M",
-              "U", "G", "Q", "TBUBBLE", "TDEW", "PBUBBLE", "PDEW"}
+              "U", "G", "Q", "TBUBBLE", "TDEW", "PBUBBLE", "PDEW",
+              "COND", "ST"}
 
 
 def _join_type(toks: List[Token]) -> str:
@@ -897,8 +900,15 @@ class Parser:
                 val = self.parse_expr()
                 self.expect_op(";")
                 reinits.append((nm, val))
-            phases[name_tok.value.lower()] = Phase(name_tok.value, eqs, cond,
-                                                   reinits, name_tok.line)
+            restart = False
+            if self.at_kw("RESTART"):
+                self.next()
+                if self.at_op(";"):
+                    self.next()
+                restart = True
+            phases[name_tok.value.lower()] = Phase(
+                name_tok.value, eqs, cond, reinits, restart,
+                name_tok.line)
         self.expect_kw("END")
         return phases
 

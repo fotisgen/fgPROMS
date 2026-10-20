@@ -35,6 +35,8 @@ _SPEC = {
     "U": ("UMASS", ("T", "P")),
     "G": ("GMASS", ("T", "P")),
     "Q": ("Q", ("T", "P")),
+    "COND": ("L", ("T", "P")),         # thermal conductivity, W/m/K
+    "ST": ("I", ("T",)),              # surface tension (saturated), N/m
     "TBUBBLE": ("T", ("P",)),     # saturated liquid (Q = 0)
     "TDEW": ("T", ("P",)),        # saturated vapour (Q = 1)
     "PBUBBLE": ("P", ("T",)),     # saturated liquid (Q = 0)
@@ -49,7 +51,8 @@ _FLUID_ONLY = {"TC", "PC", "M"}
 
 # phase-boundary functions: first argument is P (bubble/dew T) or T
 # (bubble/dew P) and the quality Q is fixed
-_FIXED_Q = {"TBUBBLE": 0.0, "TDEW": 1.0, "PBUBBLE": 0.0, "PDEW": 1.0}
+_FIXED_Q = {"TBUBBLE": 0.0, "TDEW": 1.0, "PBUBBLE": 0.0, "PDEW": 1.0,
+            "ST": 0.0}
 
 PROP_FUNCS = set(_SPEC)
 
@@ -57,6 +60,8 @@ PROP_FUNCS = set(_SPEC)
 _AS_METHODS = {
     "CP": "cpmass", "CV": "cvmass", "RHO": "rhomass", "H": "hmass",
     "S": "smass", "VISC": "viscosity", "U": "umass", "G": "gmass", "Q": "Q",
+    "K": "conductivity", "ST": "surface_tension",
+    "COND": "conductivity",
 }
 
 
@@ -170,7 +175,7 @@ def make_prop_call(name: str, fluid: str, arg_fns: List[Callable],
             q_val = _FIXED_Q[name]
             in1 = in_keys[0]
 
-            def fn(env, _q=q_val, _f=arg_fns[0], _in1=in1):
+            def fn(env, _q=q_val, _f=arg_fns[0], _in1=in1, _n=name):
                 try:
                     set_comp(env)
                     v = float(_f(env))
@@ -178,6 +183,8 @@ def make_prop_call(name: str, fluid: str, arg_fns: List[Callable],
                         AS.update(PQ_INPUTS, v, _q)
                         return float(AS.T())
                     AS.update(QT_INPUTS, _q, v)
+                    if _n == "ST":
+                        return float(AS.surface_tension())
                     return float(AS.p())
                 except Exception:
                     return float("nan")
