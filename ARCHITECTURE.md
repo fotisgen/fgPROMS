@@ -137,6 +137,11 @@ AST → Pyomo + Ipopt (binaries μέσω `idaes get-extensions`, βλ. REPOS_REP
 ✓ M28     (ολοκληρώθηκε):  FlashDrum μονάδα + Maxwell benchmark
 ✓ M29     (ολοκληρώθηκε):  FOR βρόχοι + φάκελος φάσεων + x-y plots
 ✓ M30     (ολοκληρώθηκε):  MCP server (Model Context Protocol)
+✓ M31     (ολοκληρώθηκε):  COVERAGE.md — μετρημένη μήτρα κάλυψης (57%)
+✓ Θ1      (ολοκληρώθηκε):  κυβικά EOS (PR/SRK) + fugacity + backend επιλογή
+✓ Θ2      (ολοκληρώθηκε):  NRTL/Wilson — γ-φ VLE, αζεότροπο αιθανόλης-νερού
+✓ Θ3      (ολοκληρώθηκε):  χημική ισορροπία (K-values + Gibbs minimization)
+✓ Θ4/Θ5   (ολοκληρώθηκε):  διαγράμματα T-s/heatmap + κύκλος Rankine
 ⏸ M22     (αναβλήθηκε):   Pyomo+Ipopt backend — το `idaes get-extensions`
   αποτυγχάνει στο παρόν δίκτυο (SSL interception). Το SLSQP παραμένει και
   επαρκεί για τα εκπαιδευτικά NLP· το βήμα τεκμηριώνεται για μελλοντική
