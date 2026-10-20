@@ -37,6 +37,10 @@
 
 ## 📜 Υποστηριζόμενη γλώσσα (Φάση 2)
 
+**Μετρημένη κάλυψη της επιφάνειας gPROMS: [55%](COVERAGE.md)** — βλ.
+`COVERAGE.md` για την πλήρη μήτρα και το `tests/test_coverage.py` που την
+επαληθεύει αυτόματα.
+
 ```gproms
 MODEL CSTR
   PARAMETER
@@ -111,7 +115,7 @@ fgPROMS/
 
 Δύο επίπεδα ελέγχου:
 
-### Αυτοματοποιημένη σουίτα (225 έλεγχοι + 8 browser tests)
+### Αυτοματοποιημένη σουίτα (257 έλεγχοι + 9 browser tests)
 
 Διπλό κλικ στο **`test.bat`** (ή `.venv\Scripts\python -m pytest tests -v`):
 
