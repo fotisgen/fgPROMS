@@ -1,0 +1,43 @@
+# ============================================================
+#  fgPROMS benchmark: tank level control with a PI controller
+#  Phase Normal  (t 0..10): Fin = 1, level at setpoint hsp = 5.
+#  Phase Disturbed (t 10..40): inlet jumps to Fin2 = 2 — the
+#  controller must bring the level back to hsp.
+#  Verified analytically in the test:
+#    * P-only (Ki = 0): steady offset h = hsp + (Fin2-Fb)/Kp
+#    * PI:            h -> hsp exactly (integral action)
+# ============================================================
+MODEL TankControl
+  PARAMETER
+    A   AS REAL DEFAULT 2.0
+    hsp AS REAL DEFAULT 5.0
+    Kp  AS REAL DEFAULT 1.0
+    Ki  AS REAL DEFAULT 0.5
+    Fb  AS REAL DEFAULT 1.0
+    Fin AS REAL DEFAULT 1.0
+    Fin2 AS REAL DEFAULT 2.0
+  VARIABLE
+    h     AS REAL
+    integ AS REAL
+    Fout  AS REAL
+  EQUATION
+    Fout = Fb + Kp * (h - hsp) + Ki * integ ;
+  TASK
+    PHASE Normal
+      $h = (Fin - Fout) / A ;
+      $integ = h - hsp ;
+    END
+    PHASE Disturbed
+      $h = (Fin2 - Fout) / A ;
+      $integ = h - hsp ;
+    END
+  END
+  INITIAL
+    h = 5.0 ;
+    integ = 0.0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 10 WITH Normal STEP 0.05
+      CONTINUE FOR t := 10 TO 40 WITH Disturbed STEP 0.05
+    END
+END

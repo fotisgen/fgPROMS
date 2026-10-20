@@ -860,8 +860,9 @@ def solve_dynamic(model: Model, info: dict, fixed_h: Optional[float] = None) -> 
         ended_early = False
         for pname, (s0, s1, hp) in phases.items():
             ph = model.task_phases[pname]
-            cur = compile_model(Model(name=model.name, line=model.line,
-                                      equations=ph.equations))
+            cur = compiled + compile_model(
+                Model(name=model.name, line=model.line,
+                      equations=ph.equations))
             last_compiled = cur
             je = None
             try:
