@@ -52,6 +52,7 @@ RESERVED = SECTION_KEYWORDS | {
     "LOGICAL", "TRUE", "FALSE", "AND", "OR", "NOT", "OF", "WITHIN", "STRING",
     "MAXIMIZE", "MINIMIZE", "MAXIMISE", "MINIMISE", "AT", "PARTIAL",
     "WITH", "PHASE", "MATERIAL", "FROM", "FILE", "DO", "REINITIALIZE",
+    "RESTART", "ORDERED_SET",
     "RESTART",
 }
 
@@ -716,7 +717,20 @@ class Parser:
             default = None
             if self.at_kw("DEFAULT"):
                 self.next()
-                default = self.parse_expr()
+                if (type_text.upper().startswith("ORDERED_SET")
+                        and self.peek().kind == "OP"
+                        and self.peek().value == "("):
+                    self.next()          # '('
+                    vals = []
+                    while not (self.peek().kind == "OP"
+                                and self.peek().value == ")"):
+                        vals.append(self.parse_expr())
+                        if self.at_op(","):
+                            self.next()
+                    self.next()          # ')'
+                    default = ("set", vals)
+                else:
+                    default = self.parse_expr()
             if self.at_op(";"):
                 self.next()
             decls.append(Decl(names, type_text, default, line))

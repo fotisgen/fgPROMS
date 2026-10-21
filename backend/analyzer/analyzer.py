@@ -175,6 +175,17 @@ def analyze(model: Model) -> dict:
 
     for d in model.parameters:
         for nm in d.names:
+            if "ORDERED_SET" in (d.type_text or "").upper():
+                vals = d.default[1] if isinstance(d.default, tuple) else []
+                array_sizes[nm.lower()] = (len(vals),)
+                for k, vn in enumerate(vals, start=1):
+                    key = f"{nm.lower()}({k})"
+                    seen.add(key)
+                    params.append({"name": f"{nm}({k})", "lower": key,
+                                   "base": nm.lower(),
+                                   "type": "REAL",
+                                   "default_node": vn, "line": d.line})
+                continue
             dims = _array_dims(d.type_text)
             if dims:
                 array_sizes[nm.lower()] = dims
@@ -371,6 +382,18 @@ def analyze(model: Model) -> dict:
             messages.append({"level": "error", "code": "err_bad_schedule", "args": {}})
             schedule = {"var": st.var, "t0": 0.0, "t1": 1.0, "step": 1.0}
         else:
+            # WITHIN window on the first step clamps the horizon
+            if st.within is not None:
+                w0 = _eval_const(st.within[0], env)
+                w1 = _eval_const(st.within[1], env)
+                if w0 is not None and w1 is not None and w0 <= w1:
+                    t0 = max(t0, w0)
+                    t1 = min(t1, w1)
+                    t_last = min(t_last, t1)
+                else:
+                    messages.append({"level": "warn",
+                                     "code": "warn_within_invalid",
+                                     "args": {}})
             schedule = {"var": st.var, "t0": float(t0), "t1": float(t_last),
                         "step": float(h)}
         for s2 in model.schedule:
@@ -380,8 +403,19 @@ def analyze(model: Model) -> dict:
                 h2 = _eval_const(s2.step, env) if s2.step is not None else None
                 hs = float(h2) if h2 is not None else float(h or 1.0)
                 if p0 is not None and p1 is not None:
-                    phase_intervals[s2.phase.lower()] = (float(p0), float(p1),
-                                                         hs)
+                    # WITHIN window: clamp the phase interval into it
+                    if s2.within is not None:
+                        w0 = _eval_const(s2.within[0], env)
+                        w1 = _eval_const(s2.within[1], env)
+                        if w0 is not None and w1 is not None and w0 <= w1:
+                            p0 = max(p0, w0)
+                            p1 = min(p1, w1)
+                        else:
+                            messages.append({"level": "warn",
+                                             "code": "warn_within_invalid",
+                                             "args": {}})
+                    phase_intervals[s2.phase.lower()] = (float(p0),
+                                                         float(p1), hs)
 
     # ---- task phases validation -------------------------------------------
     any_event_phase = False

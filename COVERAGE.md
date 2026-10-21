@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **81%**
+Τρέχουσα συνολική κάλυψη: **83%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -31,12 +31,12 @@
 | ✅ | Εξισώσεις IF/THEN/ELSE και IF εκφράσεις | `tests/test_analyzer.py`, `tests/test_robustness.py` |
 | ✅ | Βρόχοι FOR σε εξισώσεις | `tests/test_envelope.py` |
 | ✅ | TASK / PHASE / SCHEDULE / END WHEN | `tests/test_phases.py` |
-| ◐ | WITHIN (χρονικά παράθυρα στο SCHEDULE — συντακτική υποστήριξη) | `tests/test_language_extras.py` |
+| ✅ | WITHIN (χρονικά παράθυρα: clamp του διαστήματος ολοκλήρωσης) | `tests/test_ordered_set_within.py` |
 | ✅ | CASE / SWITCH εξισώσεις (επέκταση σε IF-αλυσίδα) | `tests/test_case_switch.py` |
 | ✅ | SELECTOR (επιλογή EOS backend σε όλα τα property calls) | `tests/test_language_extras.py` |
 | ✅ | REINITIALIZE + RESTART σε φάσεις | `tests/test_reinitialize.py`, `tests/test_transport_restart.py` |
 | ✅ | PIECEWISE γραμμικές εξισώσεις (παρεμβολή πίνακα) | `tests/test_heat_exchanger_piecewise.py` |
-| ✗ | ORDERED_SET | — |
+| ✅ | ORDERED_SET (σταθερές λίστες τιμών με δείκτη) | `tests/test_ordered_set_within.py` |
 | ✅ | Τύποι STRING (παραμετροποίηση ρευστών κ.λπ.) | `tests/test_language_extras.py` |
 | ◐ | Μονάδες: διαστατικός έλεγχος κάθε εξίσωσης (χωρίς μετατροπές) | `tests/test_units.py` |
 | ✗ | FOREIGN_OBJECT / FOREIGN_PROCESS (αρχιτεκτονικά εκτός σκοπού) | — |
