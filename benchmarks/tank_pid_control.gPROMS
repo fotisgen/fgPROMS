@@ -1,0 +1,46 @@
+# ============================================================
+#  fgPROMS benchmark: tank level control with a full PID
+#  controller. Phase Normal (t 0..10): Fin = 1, level at the
+#  setpoint. Phase Disturbed (t 10..40): inlet jumps to
+#  Fin2 = 2 — the controller restores the level.
+#  u = Fb + Kp e + Ki integ + Kd de/dt,   e = h - hsp
+#  Verified in the tests:
+#    * PI (Kd = 0): analytic steady offset for P-only and exact
+#      setpoint return with integral action
+#    * derivative action REDUCES the overshoot (classic D effect)
+# ============================================================
+MODEL TankPID
+  PARAMETER
+    A   AS REAL DEFAULT 2.0
+    hsp AS REAL DEFAULT 5.0
+    Kp  AS REAL DEFAULT 1.0
+    Ki  AS REAL DEFAULT 0.5
+    Kd  AS REAL DEFAULT 0.5
+    Fb  AS REAL DEFAULT 1.0
+    Fin AS REAL DEFAULT 1.0
+    Fin2 AS REAL DEFAULT 2.0
+  VARIABLE
+    h     AS REAL
+    integ AS REAL
+    Fout  AS REAL
+  EQUATION
+    Fout = Fb + Kp * (h - hsp) + Ki * integ + Kd * $h ;
+  TASK
+    PHASE Normal
+      $h = (Fin - Fout) / A ;
+      $integ = h - hsp ;
+    END
+    PHASE Disturbed
+      $h = (Fin2 - Fout) / A ;
+      $integ = h - hsp ;
+    END
+  END
+  INITIAL
+    h = 5.0 ;
+    integ = 0.0 ;
+  SCHEDULE
+    SEQUENCE
+      CONTINUE FOR t := 0 TO 10 WITH Normal STEP 0.05
+      CONTINUE FOR t := 10 TO 40 WITH Disturbed STEP 0.05
+    END
+END

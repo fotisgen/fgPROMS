@@ -35,6 +35,18 @@ def test_p_only_shows_steady_offset(run):
     assert abs(h[-1] - offset_ref) < 1e-2
 
 
+def test_pid_derivative_reduces_overshoot(run):
+    """Derivative action damps the response — the peak level after the
+    disturbance is lower with Kd > 0 than with Kd = 0."""
+    r_pi = run("tank_pi_control.gPROMS", folder="benchmarks")
+    r_pid = run("tank_pid_control.gPROMS", folder="benchmarks")
+    assert r_pid["results"]["success"]
+    h_pi = r_pi["timeSeries"]["variables"]["h"]
+    h_pid = r_pid["timeSeries"]["variables"]["h"]
+    assert max(h_pid) < max(h_pi) - 0.01
+    # both restore the setpoint
+    assert abs(h_pid[-1] - 5.0) < 1e-2
+    assert abs(h_pi[-1] - 5.0) < 1e-2
 def test_controller_dynamics_second_order():
     """The closed loop is a damped oscillator: h'' + (Kp/A)h'
     + (Ki/A)(h - hsp) = 0 — verify the natural frequency and that the

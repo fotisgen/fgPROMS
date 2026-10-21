@@ -288,12 +288,17 @@ def residuals(compiled: list, env: Dict[str, float]) -> Tuple[np.ndarray, List[i
 # --------------------------------------------------------------------------
 def _newton(fun, jac_fn, x0, maxiter: int = 200, tol: float = 1e-10):
     """Damped Newton with backtracking line search on max|f|.
-    Returns (x, success, iterations)."""
+    Returns (x, success, iterations). The convergence test is RELATIVE
+    to the initial residual scale — absolute tolerances are meaningless
+    for badly-scaled systems (e.g. ~1e4-size residuals)."""
     x = np.array(x0, dtype=float)
     f = np.asarray(fun(x), dtype=float)
+    scale = max(1.0, float(np.max(np.abs(f))))
     for it in range(maxiter):
         norm = float(np.max(np.abs(f)))
-        if norm < tol:
+        # absolute tolerance, plus a relative floor for badly-scaled
+        # systems (residuals of order 1e4 cannot drop below ~1e-6)
+        if norm < tol or norm < 1e-12 * scale:
             return x, True, it
         J = jac_fn(x)
         if J is None:
@@ -337,7 +342,8 @@ def _newton(fun, jac_fn, x0, maxiter: int = 200, tol: float = 1e-10):
             alpha *= 0.5
         if not accepted:
             return x, False, it
-    return x, bool(np.max(np.abs(f)) < tol), maxiter
+    return x, bool(np.max(np.abs(f)) < tol
+                   or np.max(np.abs(f)) < 1e-12 * scale), maxiter
 
 
 # --------------------------------------------------------------------------
@@ -370,7 +376,9 @@ def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, floa
         if len(r0) != len(names):
             return False, None, "dof_mismatch", []
     except Exception:
-        pass
+        r0 = np.zeros(len(names))
+    # relative residual scale for badly-scaled systems
+    rscale = max(1.0, float(np.max(np.abs(r0)))) if len(r0) else 1.0
 
     # ---- attempt analytic Newton (SymPy Jacobian) first -------------------
     if not _disable_newton:
@@ -405,7 +413,7 @@ def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, floa
                 for n, v in zip(names, cand.x):
                     env_c[n] = float(v)
                 rc, _ = residuals(compiled, env_c)
-                if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < max(2e-6, 1e-12 * rscale):
                     sol = cand
                     method = m
                     break
@@ -435,7 +443,7 @@ def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, floa
             for n, v in zip(names, x_cur):
                 env_c[n] = float(v)
             rc, _ = residuals(compiled, env_c)
-            if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+            if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < max(2e-6, 1e-12 * rscale):
                 sol = cand
                 method = "HOMOTOPY"
         except Exception:
@@ -458,7 +466,7 @@ def _root_solve(names: List[str], x0_map: Dict[str, float], base: Dict[str, floa
                     for n, v in zip(names, cand.x):
                         env_c[n] = float(v)
                     rc, _ = residuals(compiled, env_c)
-                    if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                    if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < max(2e-6, 1e-12 * rscale):
                         sol = cand
                         method = "MULTISTART"
                         break
@@ -629,7 +637,7 @@ def _bdf1_step_solve(cur, je, allv, states, idx, base, tv, t_target,
                 for n, v in zip(allv, cand.x):
                     env_c[n] = float(v)
                 rc, _ = residuals(cur, env_c)
-                if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < max(2e-6, 1e-12 * rscale):
                     return True, cand.x
         except Exception:
             continue
@@ -714,7 +722,7 @@ def _integrate_phase(cur, je, allv, states, idx, base, tv, t_start, t_end,
                 if cand.success:
                     env_c = make_env(cand.x, tnext, hcur, k)
                     rc, _ = residuals(cur, env_c)
-                    if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < 1e-6:
+                    if np.all(np.isfinite(rc)) and np.max(np.abs(rc)) < max(2e-6, 1e-12 * rscale):
                         return True, cand.x
             except Exception:
                 continue

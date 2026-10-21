@@ -1,0 +1,34 @@
+# ============================================================
+#  fgPROMS benchmark: NON-isothermal plug-flow reactor
+#  Exothermic first-order reaction:
+#      u dCA/dz = -k0 exp(-Ea/RT) CA
+#      u rho cp dT/dz = -dH k0 exp(-Ea/RT) CA
+#  Verified in the test by cross-checking the profiles against
+#  an independent solve_ivp integration of the same ODEs, plus
+#  physical checks (T rises, conversion exceeds the isothermal
+#  PFR with k at the INLET temperature).
+# ============================================================
+MODEL PFRThermal
+  PARAMETER
+    L    AS REAL DEFAULT 1.0
+    u    AS REAL DEFAULT 0.5
+    k0   AS REAL DEFAULT 2.0E8
+    Ea   AS REAL DEFAULT 60000.0
+    R    AS REAL DEFAULT 8.314
+    dH   AS REAL DEFAULT -50000.0    # exothermic, J/mol
+    rho  AS REAL DEFAULT 1000.0
+    cp   AS REAL DEFAULT 4000.0
+    CAin AS REAL DEFAULT 100.0
+    Tin  AS REAL DEFAULT 300.0
+  DISTRIBUTION
+    Axial : L : 21 ;
+  VARIABLE
+    CA AS DISTRIBUTION(Axial) OF REAL DEFAULT 99.0
+    T  AS DISTRIBUTION(Axial) OF REAL DEFAULT 301.0
+  EQUATION
+    u * PARTIAL(CA, Axial) = -k0 * EXP(-Ea / (R * T)) * CA ;
+    u * rho * cp * PARTIAL(T, Axial) = -dH * k0 * EXP(-Ea / (R * T)) * CA ;
+  BOUNDARY
+    CA = CAin AT Axial = 0 ;
+    T = Tin AT Axial = 0 ;
+END

@@ -16,7 +16,7 @@
   * `✗` απών (0.0) — δεν υλοποιείται (και γιατί, όπου έχει σημασία)
 * Η στήλη «Απόδειξη» δείχνει πού αποδεικνύεται κάθε στοιχείο.
 
-Τρέχουσα συνολική κάλυψη: **83%**
+Τρέχουσα συνολική κάλυψη: **84%**
 
 ## Ομάδα Α — Γλώσσα μοντελοποίησης (βάρος 35%)
 
@@ -90,8 +90,8 @@
 | ✅ | Επίλυση συνδεσιμότητας + DOF | `tests/test_flowsheet.py` |
 | ✅ | Βιβλιοθήκη: heater, mixer, splitter, pump, flash_drum | `tests/test_library.py`, `tests/test_thermo_consistency.py` |
 | ◐ | Στήλη απόσταξης (McCabe-Thiele, σταθερή σχετική πτητικότητα) | `tests/test_distillation.py` |
-| ◐ | Αντιδραστήρες PFR (ισοθερμοκρασιακός, 1ης τάξης) | `tests/test_pfr.py` |
-| ◐ | Ελεγκτές P/PI (κλειστός βρόχος στάθμης) | `tests/test_control.py` |
+| ✅ | Αντιδραστήρες PFR (ισοθερμοκρασιακός + θερμικός, exp κινητική) | `tests/test_pfr.py` |
+| ✅ | Ελεγκτές P/PI/PID (κλειστός βρόχος, D-όρος) | `tests/test_control.py` |
 | ✅ | Εναλλάκτες λεπτομερείς (UA, LMTD) | `tests/test_heat_exchanger_piecewise.py` |
 | ◐ | Recycle/tearing (ταυτόχρονη επίλυση, χωρίς dedicated tearing) | `tests/test_flowsheet.py` |
 | ✅ | Ισοζύγια μάζας/ενέργειας μονάδων | `tests/test_flowsheet.py` |
