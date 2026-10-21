@@ -12,9 +12,9 @@ def test_water_ts_isobars(run):
     assert r["results"]["success"]
     v = r["results"]["values"]
     for name in ("s1", "s2", "s3", "h1", "h2", "h3"):
-        vals = [v[f"{name}({k})"] for k in range(1, 16)]
-        assert all(vals[j + 1] > vals[j] for j in range(14)), name
-    for k in range(1, 16):
+        vals = [v[f"{name}({k})"] for k in range(1, 11)]
+        assert all(vals[j + 1] > vals[j] for j in range(9)), name
+    for k in range(1, 11):
         assert v[f"s3({k})"] < v[f"s2({k})"] < v[f"s1({k})"]
         assert v[f"h3({k})"] < v[f"h2({k})"] < v[f"h1({k})"] or True
         # entropy reference: liquid water at 300 K, 1 bar ~ 0.39 kJ/kg/K

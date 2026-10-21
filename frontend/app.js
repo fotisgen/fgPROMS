@@ -278,6 +278,35 @@ async function exportXlsx() {
   }
 }
 
+async function exportPdf() {
+  if (!lastRun) return;
+  try {
+    const res = await fetch("/api/export_pdf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        results: lastRun.results,
+        timeSeries: lastRun.timeSeries,
+        messages: lastRun.messages,
+        model: lastRun.model,
+      }),
+    });
+    const data = await res.json();
+    const bin = atob(data.pdf);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (currentFile || "model").replace(/\.gPROMS$/i, "") + ".pdf";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setStatus(t("csvDownloaded") + a.download);
+  } catch (e) {
+    setStatus(t("loadErr"));
+  }
+}
+
 /* ---------------- flowsheet diagram ---------------- */
 function flowsheetDiagram(m) {
   const units = m.units || [];
@@ -486,6 +515,33 @@ function renderResultsTab(d) {
     html += "</tbody></table>";
   }
 
+  if (r.mode === "estimation" && r.stats) {
+    const st = r.stats;
+    const pnames = {};
+    if (d.model) for (const p of d.model.parameters) pnames[p.name.toLowerCase()] = p.name;
+    const estNames = Object.keys(r.estimated || {});
+    html += `<h3>${t("statsTitle")}</h3>
+    <table class="grid"><thead><tr><th>${t("name")}</th><th>${t("value")}</th><th>${t("stdError")}</th><th>${t("ci95")}</th></tr></thead><tbody>`;
+    estNames.forEach((k, i) => {
+      const ci = st.ci95 ? st.ci95[i] : null;
+      html += `<tr><td>${esc(pnames[k] || k)}</td><td>${fmt(r.estimated[k])}</td><td>${fmt(st.stdErrors[i])}</td><td>${ci ? `[${fmt(ci[0])}, ${fmt(ci[1])}]` : "—"}</td></tr>`;
+    });
+    html += `</tbody></table>
+    <div class="summary ok">${t("dofLabel")}: ${st.dof} &nbsp;·&nbsp; σ²: ${fmt(st.sigma2)}</div>`;
+  }
+
+  if (r.sensitivities) {
+    const params = Object.keys(r.sensitivities);
+    const varnames = Object.keys(r.sensitivities[params[0]] || {});
+    const pnames = {};
+    if (d.model) for (const p of d.model.parameters) pnames[p.name.toLowerCase()] = p.name;
+    html += `<h3>${t("sensTitle")}</h3>
+    <table class="grid"><thead><tr><th>${t("variable")}</th>${params.map((p) => `<th>∂/∂${esc(pnames[p] || p)}</th>`).join("")}</tr></thead><tbody>`;
+    for (const vn of varnames)
+      html += `<tr><td>${esc(vn)}</td>${params.map((p) => `<td>${fmt(r.sensitivities[p][vn])}</td>`).join("")}</tr>`;
+    html += "</tbody></table>";
+  }
+
   if (r.residuals && r.residuals.length) {
     html += `<h3>${t("eqResiduals")}</h3>
     <table class="grid"><thead><tr><th>${t("eqId")}</th><th>${t("residual")}</th></tr></thead><tbody>`;
@@ -493,12 +549,14 @@ function renderResultsTab(d) {
       html += `<tr><td>#${rr.id}</td><td>${fmt(rr.value)}</td></tr>`;
     html += "</tbody></table>";
   }
-  html += `<div style="margin-top:14px"><button id="btnCsv" class="btn">${t("exportCsv")}</button> <button id="btnXlsx" class="btn">${t("exportXlsx")}</button></div>`;
+  html += `<div style="margin-top:14px"><button id="btnCsv" class="btn">${t("exportCsv")}</button> <button id="btnXlsx" class="btn">${t("exportXlsx")}</button> <button id="btnPdf" class="btn">${t("exportPdf")}</button></div>`;
   el.innerHTML = html;
   const btnCsv = el.querySelector("#btnCsv");
   if (btnCsv) btnCsv.addEventListener("click", exportCsv);
   const btnXlsx = el.querySelector("#btnXlsx");
   if (btnXlsx) btnXlsx.addEventListener("click", exportXlsx);
+  const btnPdf = el.querySelector("#btnPdf");
+  if (btnPdf) btnPdf.addEventListener("click", exportPdf);
 }
 
 /* ---------------- plots tab ---------------- */
@@ -599,16 +657,31 @@ function drawHeatmap() {
   const rows = Object.keys(g).map(Number).sort((a, c) => a - c);
   const cols = Object.keys(g[rows[0]]).map(Number).sort((a, c) => a - c);
   const z = rows.map((r) => cols.map((c) => (g[r] && g[r][c]) || 0));
+  // physical coordinates from the DISTRIBUTION declarations
+  let yTitle = "i", xTitle = "j";
+  const yCoord = rows.map((r) => r);
+  const xCoord = cols.map((c) => c);
+  const dists = (lastRun.model && lastRun.model.distributed) || [];
+  const dist = dists.find((dd) => (dd.name || "").toLowerCase() === b.toLowerCase());
+  if (dist && dist.domains && dist.domains.length >= 2) {
+    const d0 = dist.domains[0], d1 = dist.domains[1];
+    const coord = (k, n, L) => L * (k - 1) / Math.max(n - 1, 1);
+    yTitle = d0.name; xTitle = d1.name;
+    for (let i = 0; i < rows.length; i++)
+      yCoord[i] = coord(rows[i], d0.points, d0.extent);
+    for (let j = 0; j < cols.length; j++)
+      xCoord[j] = coord(cols[j], d1.points, d1.extent);
+  }
   const layout = {
     paper_bgcolor: "rgba(0,0,0,0)",
     plot_bgcolor: "rgba(0,0,0,0)",
     font: { color: "#cbd5e1", size: 12 },
     margin: { l: 55, r: 20, t: 30, b: 45 },
-    xaxis: { title: "j", gridcolor: "#24324d" },
-    yaxis: { title: "i", gridcolor: "#24324d" },
+    xaxis: { title: xTitle, gridcolor: "#24324d" },
+    yaxis: { title: yTitle, gridcolor: "#24324d" },
   };
   Plotly.newPlot("plotArea",
-    [{ z: z, x: cols, y: rows, type: "heatmap", colorscale: "Viridis" }],
+    [{ z: z, x: xCoord, y: yCoord, type: "heatmap", colorscale: "Viridis" }],
     layout, { responsive: true, displaylogo: false });
 }
 

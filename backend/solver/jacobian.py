@@ -301,9 +301,13 @@ def compile_jacobian(compiled: list, names: List[str],
             # only the symbols actually used by the DIFFERENTIATED
             # expressions are passed to lambdify (after diff, '$x' terms
             # vanish, keeping the generated functions tiny and fast)
-            g_base = [sp.diff(expr, syms[names[j]]) for j in base_cols]
-            g_der = [sp.diff(expr, dsyms[deriv_names[j]])
-                     for j in der_present]
+            g_base = (list(sp.flatten(sp.derive_by_array(
+                          expr, [syms[names[j]] for j in base_cols])))
+                      if base_cols else [])
+            g_der = (list(sp.flatten(sp.derive_by_array(
+                         expr, [dsyms[deriv_names[j]]
+                                for j in der_present])))
+                     if der_present else [])
             g_base = [_resolve_derivatives(g) for g in g_base]
             g_der = [_resolve_derivatives(g) for g in g_der]
             used = set()
@@ -388,7 +392,8 @@ def build_gradient(node, names: List[str], fixed: Dict[str, float]) -> Optional[
 
     try:
         expr = _to_sympy(node, sym_of)
-        grad = [sp.diff(expr, syms[n]) for n in names]
+        grad = list(sp.flatten(sp.derive_by_array(
+            expr, [syms[n] for n in names])))
         grad = [_resolve_derivatives(g) for g in grad]
         used = set()
         for g in grad:

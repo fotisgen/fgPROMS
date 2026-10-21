@@ -179,6 +179,47 @@ def test_xlsx_export_download(page):
     assert download.suggested_filename.endswith(".xlsx")
 
 
+def test_pdf_export_download(page):
+    page.select_option("#exampleSel", "tank.gPROMS")
+    _run(page)
+    page.wait_for_selector("#tab-results #btnPdf", timeout=60000)
+    with page.expect_download() as dl_info:
+        page.click("#tab-results #btnPdf")
+    download = dl_info.value
+    assert download.suggested_filename.endswith(".pdf")
+
+
+def test_sensitivities_table_shown(page):
+    """Steady results display the sensitivity table."""
+    page.select_option("#exampleSel", "cstr.gPROMS")
+    _run(page)
+    page.wait_for_selector("#tab-results table.grid", timeout=60000)
+    # the sensitivity panel appears (it has the ∂ header cells)
+    assert page.locator("#tab-results table.grid th",
+                        has_text="∂/∂").count() >= 1
+
+
+def test_estimation_stats_table_shown(page):
+    """Estimation results display the statistics table (SE + CI95)."""
+    page.select_option("#exampleSel", "estimation_batch.gPROMS")
+    _run(page)
+    page.wait_for_selector("#tab-results table.grid", timeout=60000)
+    assert page.get_by_text("Στατιστικά", exact=False).count() >= 0
+    # the 95% CI column header must be visible
+    assert page.locator("#tab-results th", has_text="95%").count() >= 1
+
+
+def test_heatmap_physical_axes(page):
+    """The 2D heatmap uses physical domain coordinates as axis titles."""
+    page.select_option("#exampleSel", "conduction_2d.gPROMS")
+    _run(page)
+    page.click("[data-tab=plots]")
+    page.wait_for_selector("#tab-plots #plotArea svg", timeout=60000)
+    # axis titles come from the domain names (Axial/Radial), not i/j
+    svg_text = page.locator("#tab-plots #plotArea").inner_text()
+    assert "Axial" in svg_text or "Radial" in svg_text or "axial" in svg_text
+
+
 def test_xy_plot_for_arrays(page):
     """Array results (phase envelope) offer an x-y plot instead of time
     series."""

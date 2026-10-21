@@ -318,7 +318,9 @@ def _newton(fun, jac_fn, x0, maxiter: int = 200, tol: float = 1e-10):
             # extensions produce very large derivative entries)
             D = np.maximum(np.max(np.abs(J), axis=1), 1e-300)
             try:
-                dx = np.linalg.solve(J / D[:, None], -f / D)
+                with np.errstate(over="ignore", divide="ignore",
+                                 invalid="ignore"):
+                    dx = np.linalg.solve(J / D[:, None], -f / D)
             except np.linalg.LinAlgError:
                 return x, False, it
         if not np.all(np.isfinite(dx)):
@@ -508,38 +510,39 @@ def solve_steady(model: Model, info: dict) -> dict:
 
     # ---- parameter sensitivities: dx/dp = -J^-1 (dF/dp) -------------------
     sensitivities = None
-    try:
-        jac = build_jacobian(compiled, names, base,
-                             array_sizes=info.get("_array_sizes"))
-        if jac is not None:
-            J = jac(sol)
-            if J is not None and not spm.issparse(J):
-                J = np.asarray(J, dtype=float)
-                if J.shape == (len(names), len(names)) \
-                        and np.all(np.isfinite(J)):
-                    Jinv = np.linalg.inv(J)
-                    sens: Dict[str, dict] = {}
-                    for p in sorted(base):
-                        h = 1e-6 * max(1.0, abs(base[p]))
+    if len(names) <= 100:
+        try:
+            jac = build_jacobian(compiled, names, base,
+                                 array_sizes=info.get("_array_sizes"))
+            if jac is not None:
+                J = jac(sol)
+                if J is not None and not spm.issparse(J):
+                    J = np.asarray(J, dtype=float)
+                    if J.shape == (len(names), len(names)) \
+                            and np.all(np.isfinite(J)):
+                        Jinv = np.linalg.inv(J)
+                        sens: Dict[str, dict] = {}
+                        for p in sorted(base):
+                            h = 1e-6 * max(1.0, abs(base[p]))
 
-                        def f_pert(pv, _p=p):
-                            b2 = dict(base)
-                            b2[_p] = pv
-                            env2 = dict(b2)
-                            for n, v in zip(names, sol):
-                                env2[n] = float(v)
-                            r, _ = residuals(compiled, env2)
-                            return np.where(np.isfinite(r), r, 0.0)
+                            def f_pert(pv, _p=p):
+                                b2 = dict(base)
+                                b2[_p] = pv
+                                env2 = dict(b2)
+                                for n, v in zip(names, sol):
+                                    env2[n] = float(v)
+                                r, _ = residuals(compiled, env2)
+                                return np.where(np.isfinite(r), r, 0.0)
 
-                        dFdp = (f_pert(base[p] + h) - f_pert(base[p] - h)) \
-                            / (2.0 * h)
-                        if np.all(np.isfinite(dFdp)) and np.any(dFdp != 0):
-                            dxdp = -Jinv @ dFdp
-                            sens[p] = {n: float(v)
-                                       for n, v in zip(names, dxdp)}
-                    sensitivities = sens
-    except Exception:
-        sensitivities = None
+                            dFdp = (f_pert(base[p] + h) - f_pert(base[p] - h)) \
+                                / (2.0 * h)
+                            if np.all(np.isfinite(dFdp)) and np.any(dFdp != 0):
+                                dxdp = -Jinv @ dFdp
+                                sens[p] = {n: float(v)
+                                           for n, v in zip(names, dxdp)}
+                        sensitivities = sens
+        except Exception:
+            sensitivities = None
 
     msg = {"level": "info", "code": "solved_ok",
            "args": {"method": method.upper(), "n": len(names), "res": f"{maxr:.2e}"}}
